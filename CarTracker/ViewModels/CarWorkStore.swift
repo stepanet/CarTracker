@@ -26,6 +26,12 @@ final class CarWorkStore: ObservableObject {
     func delete(_ work: CarWork) {
         works.removeAll { $0.id == work.id }
     }
+    
+    /// Заменить весь массив работ (используется при импорте бэкапа)
+    func replaceAll(with newWorks: [CarWork]) {
+        works = newWorks
+        sortWorks()
+    }
 
     func delete(at offsets: IndexSet, in list: [CarWork]) {
         let ids = offsets.map { list[$0].id }

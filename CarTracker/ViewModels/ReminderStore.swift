@@ -35,6 +35,12 @@ final class ReminderStore: ObservableObject {
             statusOrder(rhs.status(currentMileage: 0))
         }
     }
+    
+    /// Заменить весь массив напоминаний (при импорте бэкапа)
+    func replaceAll(with newReminders: [Reminder]) {
+        reminders = newReminders
+        sortReminders()
+    }
 
     private func statusOrder(_ status: ReminderStatus) -> Int {
         switch status {

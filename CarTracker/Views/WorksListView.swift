@@ -1,11 +1,18 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct WorksListView: View {
     @EnvironmentObject var store: CarWorkStore
+    @EnvironmentObject var reminderStore: ReminderStore
     @State private var showingAdd = false
     @State private var editingWork: CarWork?
     @State private var searchText = ""
     @State private var selectedCategory: CarWork.WorkCategory? = nil
+    // Состояния для экспорта/импорта
+    @State private var showingShareSheet = false
+    @State private var shareURL: URL?
+    @State private var showingFileImporter = false
+    @State private var alertMessage: AlertMessage?
 
     var filteredWorks: [CarWork] {
         store.works.filter { work in
@@ -41,12 +48,58 @@ struct WorksListView: View {
                             .font(.title2)
                     }
                 }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            exportBackup()
+                        } label: {
+                            Label("Экспорт бэкапа (JSON)", systemImage: "square.and.arrow.up")
+                        }
+
+                        Button {
+                            exportCSV()
+                        } label: {
+                            Label("Экспорт в CSV", systemImage: "tablecells")
+                        }
+
+                        Divider()
+
+                        Button {
+                            showingFileImporter = true
+                        } label: {
+                            Label("Импорт из файла", systemImage: "square.and.arrow.down")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.title2)
+                    }
+                }
             }
             .sheet(isPresented: $showingAdd) {
                 AddEditWorkView(work: nil)
             }
             .sheet(item: $editingWork) { work in
                 AddEditWorkView(work: work)
+            }
+            .sheet(isPresented: $showingShareSheet) {
+                if let url = shareURL {
+                    ShareSheet(items: [url])
+                }
+            }
+            .fileImporter(
+                isPresented: $showingFileImporter,
+                allowedContentTypes: [.json],
+                allowsMultipleSelection: false
+            ) { result in
+                handleImport(result: result)
+            }
+            .alert(item: $alertMessage) { msg in
+                Alert(
+                    title: Text(msg.title),
+                    message: Text(msg.message),
+                    dismissButton: .default(Text("OK"))
+                )
             }
         }
     }
@@ -170,4 +223,83 @@ struct WorksListView: View {
         f.maximumFractionDigits = 0
         return f.string(from: NSNumber(value: value)) ?? "\(Int(value)) ₽"
     }
+    
+    // MARK: - Экспорт / импорт
+
+    private func exportBackup() {
+        do {
+            let url = try BackupManager.exportBackup(
+                works: store.works,
+                reminders: reminderStore.reminders
+            )
+            shareURL = url
+            showingShareSheet = true
+        } catch {
+            alertMessage = AlertMessage(
+                title: "Ошибка экспорта",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func exportCSV() {
+        do {
+            let url = try BackupManager.exportCSV(works: store.works)
+            shareURL = url
+            showingShareSheet = true
+        } catch {
+            alertMessage = AlertMessage(
+                title: "Ошибка экспорта",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func handleImport(result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            importFrom(url: url)
+
+        case .failure(let error):
+            alertMessage = AlertMessage(
+                title: "Ошибка выбора файла",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func importFrom(url: URL) {
+        do {
+            let backup = try BackupManager.importBackup(from: url)
+            let merged = BackupManager.merge(
+                backup: backup,
+                into: store.works,
+                and: reminderStore.reminders
+            )
+
+            // Применяем результат
+            
+            store.replaceAll(with: merged.works)
+            reminderStore.replaceAll(with: merged.reminders)
+            
+            alertMessage = AlertMessage(
+                title: "Импорт завершён",
+                message: merged.result.summaryText
+            )
+        } catch {
+            alertMessage = AlertMessage(
+                title: "Ошибка импорта",
+                message: error.localizedDescription
+            )
+        }
+    }
+}
+
+// MARK: - Вспомогательные типы для алертов
+
+struct AlertMessage: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
 }
