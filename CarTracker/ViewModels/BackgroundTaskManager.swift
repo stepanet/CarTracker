@@ -34,15 +34,15 @@ final class BackgroundTaskManager {
     /// Вызывается при старте и после каждого выполнения задачи.
     func scheduleRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: refreshTaskIdentifier)
-
-        // «Не раньше чем через 6 часов». iOS может отложить на больше.
         request.earliestBeginDate = Date(timeIntervalSinceNow: 6 * 3600)
 
-        do {
-            try BGTaskScheduler.shared.submit(request)
-            print("✅ Фоновая задача запланирована")
-        } catch {
-            print("❌ Не удалось запланировать фоновую задачу: \(error)")
+        // Новый API для iOS 27+
+        BGTaskScheduler.shared.submitTaskRequest(request) { error in
+            if let error = error {
+                print("❌ Не удалось запланировать фоновую задачу: \(error)")
+            } else {
+                print("✅ Фоновая задача запланирована")
+            }
         }
     }
 

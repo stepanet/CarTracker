@@ -27,7 +27,7 @@ struct ReminderCardView: View {
         var maxProgress: Double = 0
 
         // Прогресс по пробегу
-        if let nextMileage = reminder.nextMileage, reminder.intervalKm > 0 {
+        if reminder.intervalKm > 0 {
             let passed = currentMileage - reminder.lastMileage
             let ratio = Double(passed) / Double(reminder.intervalKm)
             maxProgress = max(maxProgress, ratio)
