@@ -12,15 +12,24 @@ final class CarWorkStore: ObservableObject {
 
     // MARK: - CRUD
     func add(_ work: CarWork) {
-        works.append(work)
+        var newWork = work
+        // Если есть подработы — считаем стоимость автоматически
+        if !newWork.subWorks.isEmpty {
+            newWork.cost = newWork.subWorksTotal
+        }
+        works.append(newWork)
         sortWorks()
     }
 
     func update(_ work: CarWork) {
-        if let idx = works.firstIndex(where: { $0.id == work.id }) {
-            works[idx] = work
-            sortWorks()
+        guard let idx = works.firstIndex(where: { $0.id == work.id }) else { return }
+        var updated = work
+        // Если есть подработы — стоимость = сумма подработ
+        if !updated.subWorks.isEmpty {
+            updated.cost = updated.subWorksTotal
         }
+        works[idx] = updated
+        sortWorks()
     }
 
     func delete(_ work: CarWork) {
@@ -38,6 +47,49 @@ final class CarWorkStore: ObservableObject {
         works.removeAll { ids.contains($0.id) }
     }
 
+    // MARK: - Подзаписи (работы и детали)
+
+    /// Добавить подзапись к работе
+    func addSubItem(to workId: UUID, item: SubItem) {
+        guard let index = works.firstIndex(where: { $0.id == workId }) else { return }
+        works[index].subWorks.append(item)
+        recalculateCost(at: index)
+        sortWorks() // не обязательно, но подстрахуемся
+    }
+
+    /// Обновить подзапись
+    func updateSubItem(in workId: UUID, item: SubItem) {
+        guard let workIndex = works.firstIndex(where: { $0.id == workId }),
+              let itemIndex = works[workIndex].subWorks.firstIndex(where: { $0.id == item.id })
+        else { return }
+
+        works[workIndex].subWorks[itemIndex] = item
+        recalculateCost(at: workIndex)
+    }
+
+    /// Удалить подзапись
+    func removeSubItem(from workId: UUID, itemId: UUID) {
+        guard let workIndex = works.firstIndex(where: { $0.id == workId }) else { return }
+        works[workIndex].subWorks.removeAll { $0.id == itemId }
+        recalculateCost(at: workIndex)
+    }
+
+    /// Удалить все подзаписи работы
+    func clearSubItems(from workId: UUID) {
+        guard let workIndex = works.firstIndex(where: { $0.id == workId }) else { return }
+        works[workIndex].subWorks.removeAll()
+        recalculateCost(at: workIndex)
+    }
+
+    /// Пересчитать `cost` работы: если есть подзаписи — сумма подзаписей.
+    /// Если подзаписей нет — оставляем введённое значение.
+    private func recalculateCost(at index: Int) {
+        let work = works[index]
+        guard !work.subWorks.isEmpty else { return }
+        works[index].cost = work.subWorksTotal
+    }
+    
+    
     private func sortWorks() {
         works.sort { $0.date > $1.date }
     }

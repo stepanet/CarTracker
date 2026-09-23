@@ -20,6 +20,7 @@ struct ContentView: View {
                     Label("Напоминания", systemImage: "bell.fill")
                 }
                 .badge(reminderStore.reminders.filter { $0.isEnabled }.count)
+            
         }
     }
 }
