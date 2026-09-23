@@ -186,9 +186,17 @@ struct AddEditWorkView: View {
                 }
             }
             .onAppear { loadIfEditing() }
+            .sheet(item: $editingSubItem) { item in
+                SubItemFormView(
+                    item: item,
+                    defaultType: item.type
+                ) { savedItem in
+                    saveSubItem(savedItem)
+                }
+            }
             .sheet(isPresented: $showingSubItemForm) {
                 SubItemFormView(
-                    item: editingSubItem,
+                    item: nil,
                     defaultType: newSubItemType
                 ) { savedItem in
                     saveSubItem(savedItem)
@@ -257,9 +265,8 @@ struct AddEditWorkView: View {
     }
 
     private func openEditSubItem(_ item: SubItem) {
-        newSubItemType = item.type
+        showingSubItemForm = false
         editingSubItem = item
-        showingSubItemForm = true
     }
 
     private func saveSubItem(_ item: SubItem) {
@@ -274,6 +281,10 @@ struct AddEditWorkView: View {
         if hasSubItems {
             cost = ""
         }
+        
+        // Сбрасываем состояние — важно для .sheet(item:)
+               editingSubItem = nil
+               showingSubItemForm = false
     }
 
     private func deleteSubItem(_ item: SubItem) {
