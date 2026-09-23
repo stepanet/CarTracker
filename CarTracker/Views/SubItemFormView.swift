@@ -12,7 +12,7 @@ struct SubItemFormView: View {
 
     @State private var type: SubItemType
     @State private var title = ""
-    @State private var quantity = "1"
+    @State private var quantity = ""
     @State private var unitPrice = ""
     @State private var note = ""
 
@@ -64,15 +64,38 @@ struct SubItemFormView: View {
                 }
 
                 Section("Стоимость") {
-                    HStack {
-                        Text(type == .work ? "Количество" : "Количество")
+                    HStack(spacing: 12) {
+                        Text("Количество")
+
                         Spacer()
+
+                        Button {
+                            decrementQuantity()
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(.blue)
+                        }
+                        .buttonStyle(.plain)
+
                         TextField("1", text: $quantity)
                             .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
-                        Text(type == .work ? "шт." : "шт.")
+                            .multilineTextAlignment(.center)
+                            .frame(width: 60)
+                            .font(.body.weight(.medium))
+
+                        Button {
+                            incrementQuantity()
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(.blue)
+                        }
+                        .buttonStyle(.plain)
+
+                        Text("шт.")
                             .foregroundStyle(.secondary)
+                            .frame(width: 30, alignment: .leading)
                     }
 
                     HStack {
@@ -127,7 +150,8 @@ struct SubItemFormView: View {
         guard let item else { return }
         type = item.type
         title = item.title
-        quantity = formatQuantity(item.quantity)
+        // Если количество 1 — оставляем поле пустым (дефолт)
+        quantity = item.quantity == 1 ? "" : formatQuantity(item.quantity)
         unitPrice = formatPrice(item.unitPrice)
         note = item.note
     }
@@ -169,5 +193,20 @@ struct SubItemFormView: View {
         f.currencySymbol = "₽"
         f.maximumFractionDigits = 0
         return f.string(from: NSNumber(value: value)) ?? "\(Int(value)) ₽"
+    }
+    
+    private func incrementQuantity() {
+        let current = currentQuantity
+        quantity = formatQuantity(current + 1)
+    }
+
+    private func decrementQuantity() {
+        let current = currentQuantity
+        let newValue = max(1, current - 1)  // минимум 1
+        quantity = newValue == 1 ? "" : formatQuantity(newValue)
+    }
+
+    private var currentQuantity: Double {
+        Double(quantity.replacingOccurrences(of: ",", with: ".")) ?? 1
     }
 }

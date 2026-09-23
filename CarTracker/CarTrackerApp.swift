@@ -18,6 +18,7 @@ struct CarTrackerApp: App {
             ContentView()
                 .environmentObject(workStore)
                 .environmentObject(reminderStore)
+                .environment(\.locale, Locale(identifier: "ru_RU"))
                 .onAppear {
                     setupBackgroundTask()
                     handleFirstLaunch()
