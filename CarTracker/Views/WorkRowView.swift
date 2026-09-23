@@ -16,6 +16,7 @@ struct WorkRowView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(work.title)
                     .font(.headline)
+
                 HStack(spacing: 8) {
                     Text(work.date, style: .date)
                     if work.mileage > 0 {
@@ -24,6 +25,22 @@ struct WorkRowView: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+                // Значок подработ — если есть
+                if work.hasSubItems {
+                    HStack(spacing: 8) {
+                        if work.worksCount > 0 {
+                            Label("\(work.worksCount)", systemImage: "wrench.adjustable.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.blue)
+                        }
+                        if work.partsCount > 0 {
+                            Label("\(work.partsCount)", systemImage: "shippingbox.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
             }
 
             Spacer()

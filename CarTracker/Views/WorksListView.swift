@@ -185,16 +185,20 @@ struct WorksListView: View {
     private var worksList: some View {
         List {
             ForEach(filteredWorks) { work in
-                WorkRowView(work: work)
-                    .contentShape(Rectangle())
-                    .onTapGesture { editingWork = work }
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            store.delete(work)
-                        } label: {
-                            Label("Удалить", systemImage: "trash")
-                        }
+                NavigationLink {
+                    WorkDetailView(work: work) {
+                        editingWork = work
                     }
+                } label: {
+                    WorkRowView(work: work)
+                }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        store.delete(work)
+                    } label: {
+                        Label("Удалить", systemImage: "trash")
+                    }
+                }
             }
         }
         .listStyle(.plain)
