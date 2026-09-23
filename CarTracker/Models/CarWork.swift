@@ -9,6 +9,27 @@ struct CarWork: Identifiable, Codable, Equatable {
     var cost: Double            // Стоимость
     var note: String            // Заметки
     var isDone: Bool = true     // Выполнено/запланировано
+    var subWorks: [SubItem] = []    // ← НОВОЕ ПОЛЕ
+    
+    /// Есть ли у работы подзаписи (работы или детали)
+    var hasSubItems: Bool {
+        !subWorks.isEmpty
+    }
+
+    /// Количество работ
+    var worksCount: Int {
+        subWorks.filter { $0.type == .work }.count
+    }
+
+    /// Количество деталей
+    var partsCount: Int {
+        subWorks.filter { $0.type == .part }.count
+    }
+
+    /// Общая стоимость подзаписей
+    var subWorksTotal: Double {
+        subWorks.reduce(0) { $0 + $1.totalCost }
+    }
 
     enum WorkCategory: String, Codable, CaseIterable, Identifiable {
         case maintenance = "ТО"
