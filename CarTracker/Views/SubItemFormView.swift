@@ -31,13 +31,13 @@ struct SubItemFormView: View {
 
     private var isValid: Bool {
         let hasTitle = !title.trimmingCharacters(in: .whitespaces).isEmpty
-        let qty = Double(quantity.replacingOccurrences(of: ",", with: ".")) ?? 0
+        let qty = Double(quantity.replacingOccurrences(of: ",", with: ".")) ?? 1
         let price = Double(unitPrice.replacingOccurrences(of: ",", with: ".")) ?? 0
         return hasTitle && qty > 0 && price >= 0
     }
 
     private var totalCost: Double {
-        let qty = Double(quantity.replacingOccurrences(of: ",", with: ".")) ?? 0
+        let qty = Double(quantity.replacingOccurrences(of: ",", with: ".")) ?? 1
         let price = Double(unitPrice.replacingOccurrences(of: ",", with: ".")) ?? 0
         return qty * price
     }

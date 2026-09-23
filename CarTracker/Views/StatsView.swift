@@ -5,10 +5,18 @@ struct StatsView: View {
     @EnvironmentObject var store: CarWorkStore
 
     @State private var monthsBack = 6
-    @State private var selectedBar: MonthlyCost?
 
-    private var monthlyData: [MonthlyCost] { store.monthlyCosts(monthsBack: monthsBack) }
+    private var monthlyData: [MonthlyCostDetailed] {
+        store.monthlyCostsDetailed(monthsBack: monthsBack)
+    }
     private var categoryData: [CategoryCost] { store.categoryCosts() }
+
+    /// Средний расход в месяц (для линии на графике)
+    private var averageMonthlyTotal: Double {
+        let nonEmpty = monthlyData.filter { $0.total > 0 }
+        guard !nonEmpty.isEmpty else { return 0 }
+        return nonEmpty.reduce(0) { $0 + $1.total } / Double(nonEmpty.count)
+    }
 
     var body: some View {
         NavigationStack {
@@ -17,6 +25,7 @@ struct StatsView: View {
                     summarySection
                     monthlyChartSection
                     categoryChartSection
+                    TopItemsChart()
                 }
                 .padding()
             }
@@ -25,28 +34,96 @@ struct StatsView: View {
         }
     }
 
-    // MARK: - Сводка
     private var summarySection: some View {
-        HStack(spacing: 12) {
-            statCard(
-                title: "Всего",
-                value: formatCurrency(store.totalCost),
-                icon: "banknote.fill",
-                color: .blue
-            )
-            statCard(
-                title: "За год",
-                value: formatCurrency(store.totalCostThisYear),
-                icon: "calendar",
-                color: .green
-            )
-            statCard(
-                title: "Средний/мес",
-                value: formatCurrency(averagePerMonth),
-                icon: "chart.line.uptrend.xyaxis",
-                color: .orange
-            )
+        VStack(spacing: 10) {
+            // Большая карточка «Всего» с разбивкой
+            VStack(spacing: 8) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Всего потрачено")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(formatCurrency(store.totalCost))
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.primary)
+                    }
+                    Spacer()
+                }
+
+                Divider()
+
+                HStack(spacing: 12) {
+                    // Работы
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "wrench.adjustable.fill")
+                                .font(.caption)
+                                .foregroundStyle(.blue)
+                            Text("Работы")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(formatCurrency(store.totalWorksCost))
+                            .font(.subheadline.weight(.semibold))
+                        Text(percentText(store.totalWorksCost))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Divider().frame(height: 32)
+
+                    // Детали
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "shippingbox.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                            Text("Детали")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(formatCurrency(store.totalPartsCost))
+                            .font(.subheadline.weight(.semibold))
+                        Text(percentText(store.totalPartsCost))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(14)
+            .background(Color(.secondarySystemGroupedBackground))
+            .cornerRadius(16)
+
+            // Три маленькие карточки
+            HStack(spacing: 12) {
+                statCard(
+                    title: "За год",
+                    value: formatCurrency(store.totalCostThisYear),
+                    icon: "calendar",
+                    color: .green
+                )
+                statCard(
+                    title: "Средний/мес",
+                    value: formatCurrency(averagePerMonth),
+                    icon: "chart.line.uptrend.xyaxis",
+                    color: .orange
+                )
+                statCard(
+                    title: "Записей",
+                    value: "\(store.works.count)",
+                    icon: "list.bullet",
+                    color: .purple
+                )
+            }
         }
+    }
+
+    private func percentText(_ value: Double) -> String {
+        let total = store.totalCost
+        guard total > 0 else { return "0%" }
+        return String(format: "%.0f%%", value / total * 100)
     }
 
     private var averagePerMonth: Double {
@@ -96,25 +173,39 @@ struct StatsView: View {
                     ForEach(monthlyData) { item in
                         BarMark(
                             x: .value("Месяц", item.label),
-                            y: .value("Сумма", item.total)
+                            y: .value("Сумма", item.worksTotal)
                         )
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [.blue, .cyan],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
+                        .foregroundStyle(by: .value("Тип", "Работы"))
+                        .cornerRadius(4)
+
+                        BarMark(
+                            x: .value("Месяц", item.label),
+                            y: .value("Сумма", item.partsTotal)
                         )
-                        .cornerRadius(6)
-                        .annotation(position: .top) {
-                            if item.total > 0 {
-                                Text(shortCurrency(item.total))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                        .foregroundStyle(by: .value("Тип", "Детали"))
+                        .cornerRadius(4)
                     }
+
+                    // Линия среднего
+                    RuleMark(y: .value("Среднее", averageMonthlyTotal))
+                        .foregroundStyle(.gray.opacity(0.5))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                        .annotation(position: .top, alignment: .trailing) {
+                            Text("средн: \(shortCurrency(averageMonthlyTotal))")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 4)
+                                .background(
+                                    Color(.secondarySystemGroupedBackground)
+                                        .opacity(0.9)
+                                )
+                                .cornerRadius(4)
+                        }
                 }
+                .chartForegroundStyleScale([
+                    "Работы": Color.blue,
+                    "Детали": Color.orange
+                ])
                 .chartYAxis {
                     AxisMarks(position: .leading) { value in
                         AxisGridLine()
@@ -126,14 +217,31 @@ struct StatsView: View {
                         }
                     }
                 }
-                .frame(height: 220)
+                .frame(height: 240)
+
+                // Легенда
+                HStack(spacing: 16) {
+                    Label {
+                        Text("Работы")
+                            .font(.caption)
+                    } icon: {
+                        Circle().fill(.blue).frame(width: 8, height: 8)
+                    }
+                    Label {
+                        Text("Детали")
+                            .font(.caption)
+                    } icon: {
+                        Circle().fill(.orange).frame(width: 8, height: 8)
+                    }
+                }
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
         .cornerRadius(16)
     }
-
     // MARK: - График по категориям
     private var categoryChartSection: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -143,17 +251,32 @@ struct StatsView: View {
             if categoryData.isEmpty {
                 emptyChartPlaceholder
             } else {
-                Chart(categoryData) { item in
-                    SectorMark(
-                        angle: .value("Сумма", item.total),
-                        innerRadius: .ratio(0.55),
-                        angularInset: 1.5
-                    )
-                    .cornerRadius(4)
-                    .foregroundStyle(by: .value("Категория", item.category.rawValue))
+                ZStack {
+                    Chart(categoryData) { item in
+                        SectorMark(
+                            angle: .value("Сумма", item.total),
+                            innerRadius: .ratio(0.62),
+                            angularInset: 1.5
+                        )
+                        .cornerRadius(4)
+                        .foregroundStyle(by: .value("Категория", item.category.rawValue))
+                    }
+                    .chartForegroundStyleScale(colorScale)
+                    .chartLegend(.hidden)
+
+                    // Центральный текст
+                    VStack(spacing: 2) {
+                        Text("Всего")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(shortCurrency(totalCategorySum))
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(.primary)
+                        Text("₽")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .chartForegroundStyleScale(colorScale)
-                .chartLegend(.hidden)
                 .frame(height: 220)
 
                 VStack(spacing: 8) {
@@ -211,6 +334,10 @@ struct StatsView: View {
         return String(format: "%.0f%%", value / total * 100)
     }
 
+    private var totalCategorySum: Double {
+        categoryData.reduce(0) { $0 + $1.total }
+    }
+    
     // MARK: - Заглушка
     private var emptyChartPlaceholder: some View {
         VStack(spacing: 8) {
