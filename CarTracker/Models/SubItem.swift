@@ -32,6 +32,39 @@ struct SubItem: Identifiable, Codable, Equatable {
     var unitPrice: Double           // Цена за единицу
     var note: String = ""           // Артикул, бренд, комментарий
 
+    // MARK: - Кастомное декодирование (для совместимости)
+
+    enum CodingKeys: String, CodingKey {
+        case id, type, title, quantity, unitPrice, note
+    }
+
+    
+    init(
+        id: UUID = UUID(),
+        type: SubItemType,
+        title: String,
+        quantity: Double = 1,
+        unitPrice: Double,
+        note: String = ""
+    ) {
+        self.id = id
+        self.type = type
+        self.title = title
+        self.quantity = quantity
+        self.unitPrice = unitPrice
+        self.note = note
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        type = try container.decode(SubItemType.self, forKey: .type)
+        title = try container.decode(String.self, forKey: .title)
+        quantity = try container.decodeIfPresent(Double.self, forKey: .quantity) ?? 1
+        unitPrice = try container.decode(Double.self, forKey: .unitPrice)
+        note = try container.decodeIfPresent(String.self, forKey: .note) ?? ""
+    }
+    
     /// Итоговая стоимость: количество × цена
     var totalCost: Double {
         quantity * unitPrice
