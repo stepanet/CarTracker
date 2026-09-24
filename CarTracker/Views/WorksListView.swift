@@ -1,9 +1,11 @@
 import SwiftUI
 import UniformTypeIdentifiers
-import UIKit          // ← для UIImpactFeedbackGenerator
+import UIKit
+import Auth  // для user.email
 
 struct WorksListView: View {
     @EnvironmentObject var store: CarWorkStore
+    @EnvironmentObject var authManager: AuthManager
 
     @State private var showingAdd = false
     @State private var editingWork: CarWork?
@@ -17,6 +19,10 @@ struct WorksListView: View {
     @State private var shareURL: URL?
     @State private var showingFileImporter = false
     @State private var alertMessage: AlertMessage?
+
+    // Выход из аккаунта
+    @State private var showingLogoutAlert = false
+    @State private var isLoggingOut = false
 
     var filteredWorks: [CarWork] {
         store.works.filter { work in
@@ -89,9 +95,33 @@ struct WorksListView: View {
                         } label: {
                             Label("Импорт из файла", systemImage: "square.and.arrow.down")
                         }
+
+                        Divider()
+
+                        // Email пользователя
+                        if let email = authManager.user?.email {
+                            Text(email)
+                                .font(.caption)
+                        }
+
+                        // Выйти из аккаунта
+                        Button(role: .destructive) {
+                            showingLogoutAlert = true
+                        } label: {
+                            Label(
+                                "Выйти из аккаунта",
+                                systemImage: "rectangle.portrait.and.arrow.right"
+                            )
+                        }
+                        .disabled(isLoggingOut)
                     } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.title2)
+                        if isLoggingOut {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.title2)
+                        }
                     }
                 }
             }
@@ -104,6 +134,9 @@ struct WorksListView: View {
             .sheet(item: $viewingWork) { work in
                 NavigationStack {
                     WorkDetailView(work: work) {
+                        // КРИТИЧЕСКИЙ ПОРЯДОК: сначала закрываем детальный,
+                        // потом открываем форму редактирования
+                        viewingWork = nil
                         editingWork = work
                     }
                 }
@@ -126,6 +159,14 @@ struct WorksListView: View {
                     message: Text(msg.message),
                     dismissButton: .default(Text("OK"))
                 )
+            }
+            .alert("Выйти из аккаунта?", isPresented: $showingLogoutAlert) {
+                Button("Отмена", role: .cancel) { }
+                Button("Выйти", role: .destructive) {
+                    Task { await performLogout() }
+                }
+            } message: {
+                Text("Данные останутся в облаке — сможете войти снова.")
             }
         }
     }
@@ -282,6 +323,9 @@ struct WorksListView: View {
             }
         }
         .listStyle(.plain)
+        .refreshable {
+            await refresh()
+        }
     }
 
     private var emptyState: some View {
@@ -307,6 +351,20 @@ struct WorksListView: View {
     private func deleteWork(_ work: CarWork) async {
         savingError = nil
         await store.remove(work)
+    }
+
+    @MainActor
+    private func performLogout() async {
+        isLoggingOut = true
+
+        do {
+            try await authManager.signOut()
+            print("👋 Выход выполнен")
+        } catch {
+            print("❌ Ошибка выхода: \(error)")
+        }
+
+        isLoggingOut = false
     }
 
     // MARK: - Экспорт / импорт
@@ -397,7 +455,7 @@ struct WorksListView: View {
         f.maximumFractionDigits = 0
         return f.string(from: NSNumber(value: value)) ?? "\(Int(value)) ₽"
     }
-    
+
     /// Обновить данные из облака (pull-to-refresh)
     @MainActor
     private func refresh() async {
