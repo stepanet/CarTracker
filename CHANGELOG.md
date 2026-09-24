@@ -1,4 +1,53 @@
 # Changelog
+
+## [2.0] — 2026-09-24
+
+Облачная синхронизация через Supabase. Единая база с веб-версией.
+
+### Added
+
+**🔐 Аутентификация (Supabase Auth)**
+- Экран входа / регистрации `AuthView`
+- `AuthManager` — управление сессией (сохранение в Keychain)
+- Русские сообщения об ошибках
+- Валидация email + пароля
+- Кнопка «Выйти» в шапке `ContentView`
+- Email пользователя в шапке
+
+**☁️ Синхронизация данных (Supabase)**
+- `SupabaseService` — единый клиент Supabase
+- `WorksRepository` — CRUD работ + подработ
+- `RemindersRepository` — CRUD напоминаний
+- `RealtimeManager` — Realtime-подписки (WebSocket)
+- Оптимистичные обновления UI с откатом при ошибке
+- Миграция UserDefaults → Supabase (одноразовая)
+- Pull-to-refresh в списках работ и напоминаний
+- Автоперезагрузка данных при возврате в фокус
+
+**🛠 Технические улучшения**
+- Кастомный `init(from:)` в `CarWork` — совместимость со старыми бэкапами
+- `replica identity full` для Realtime DELETE
+- Синтаксис фильтров `.eq("user_id", value: ...)`
+- `subscribeWithError()` вместо `subscribe()`
+
+### Changed
+- `CarWorkStore` — Supabase вместо UserDefaults
+- `ReminderStore` — Supabase вместо UserDefaults
+- Все CRUD-методы в сторах стали `async`
+- `ContentView` получил верхнюю панель с email и кнопкой выхода
+
+### Fixed
+- Порядок хуков в SwiftUI-вью
+- Тип `user` narrowing в async-контексте
+- Отсутствующие импорты (`Auth`, `UniformTypeIdentifiers`)
+- Realtime DELETE: события не приходили (исправлено через `replica identity full`)
+
+### Notes
+- Облачная база **общая с веб-версией:** https://car-tracker-web-pi.vercel.app
+- Формат JSON-бэкапа совместим
+- Realtime работает для INSERT / UPDATE / DELETE
+- Supabase SDK: `supabase-swift` 2.x
+
 ## [1.3] — 2026-09-23
 
 Подработки и расширенная статистика.
