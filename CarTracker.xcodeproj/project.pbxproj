@@ -6,6 +6,10 @@
 	objectVersion = 110;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		64C385883065A0A500C17926 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 64C385873065A0A500C17926 /* Supabase */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		6490D17F30619C2100ADDF18 /* CarTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CarTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -35,6 +39,7 @@
 		6490D17C30619C2100ADDF18 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				64C385883065A0A500C17926 /* Supabase in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -44,6 +49,7 @@
 			isa = PBXGroup;
 			children = (
 				6490D18130619C2100ADDF18 /* CarTracker */,
+				64C385863065A0A500C17926 /* Frameworks */,
 				6490D18030619C2100ADDF18 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,6 +60,13 @@
 				6490D17F30619C2100ADDF18 /* CarTracker.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		64C385863065A0A500C17926 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -73,6 +86,9 @@
 				6490D18130619C2100ADDF18 /* CarTracker */,
 			);
 			name = CarTracker;
+			packageProductDependencies = (
+				64C385873065A0A500C17926 /* Supabase */,
+			);
 			productName = CarTracker;
 			productReference = 6490D17F30619C2100ADDF18 /* CarTracker.app */;
 			productType = "com.apple.product-type.application";
@@ -101,6 +117,9 @@
 			);
 			mainGroup = 6490D17630619C2100ADDF18;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				64C3858530659FF900C17926 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 6490D18030619C2100ADDF18 /* Products */;
 			projectDirPath = "";
@@ -360,6 +379,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		64C3858530659FF900C17926 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		64C385873065A0A500C17926 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 64C3858530659FF900C17926 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 6490D17730619C2100ADDF18 /* Project object */;
 	validationLevel = 1;

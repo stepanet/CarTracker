@@ -39,7 +39,7 @@ struct TopItemsChart: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 140)
             } else {
-                VStack(spacing: 8) {
+                VStack(spacing: 10) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                         row(index: index + 1, item: item)
                     }
@@ -75,7 +75,8 @@ struct TopItemsChart: View {
     // MARK: - Строка
 
     private func row(index: Int, item: TopItem) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
+            // Номер
             Text("\(index)")
                 .font(.caption.weight(.bold))
                 .frame(width: 22, height: 22)
@@ -83,23 +84,46 @@ struct TopItemsChart: View {
                 .foregroundStyle(.secondary)
                 .clipShape(Circle())
 
+            // Название + контекст
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
                     .font(.subheadline)
                     .lineLimit(1)
-                if item.occurrences > 1 {
-                    Text("\(item.occurrences) раз")
+
+                // Количество и цена за единицу: "4 × 565 ₽"
+                if let qty = item.quantity,
+                   let price = item.unitPrice,
+                   qty != 1 {
+                    Text("\(formatQuantity(qty)) × \(formatMoney(price))")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                }
+
+                // К какому ТО относится
+                if let workTitle = item.workTitle {
+                    HStack(spacing: 4) {
+                        Text(workTitle)
+                        if let date = item.workDate {
+                            Text("•")
+                            Text(date, format: .dateTime.day().month(.abbreviated).year())
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
                 }
             }
 
             Spacer()
 
+            // Сумма
             Text(formatMoney(item.total))
                 .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
         }
     }
+
+    // MARK: - Форматирование
 
     private func formatMoney(_ value: Double) -> String {
         let f = NumberFormatter()
@@ -107,5 +131,14 @@ struct TopItemsChart: View {
         f.currencySymbol = "₽"
         f.maximumFractionDigits = 0
         return f.string(from: NSNumber(value: value)) ?? "\(Int(value)) ₽"
+    }
+
+    private func formatQuantity(_ value: Double) -> String {
+        if value == floor(value) {
+            return String(Int(value))
+        }
+        // Убираем хвостовые нули: 4.50 → 4.5
+        return String(format: "%.2f", value)
+            .replacingOccurrences(of: #"\.?0+$"#, with: "", options: .regularExpression)
     }
 }

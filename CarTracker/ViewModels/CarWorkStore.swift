@@ -61,7 +61,7 @@ final class CarWorkStore: ObservableObject {
     func updateSubItem(in workId: UUID, item: SubItem) {
         guard let workIndex = works.firstIndex(where: { $0.id == workId }),
               let itemIndex = works[workIndex].subWorks.firstIndex(where: { $0.id == item.id })
-                else { return }
+        else { return }
         
         works[workIndex].subWorks[itemIndex] = item
         recalculateCost(at: workIndex)
@@ -242,29 +242,46 @@ final class CarWorkStore: ObservableObject {
         return result
     }
     
-    /// Топ-N затрат (работ или деталей) за всё время
-    /// Возвращает агрегированные по названию позиции
+    /// Топ-N затрат (работ или деталей) за всё время.
+    /// Каждое использование — отдельная строка, с контекстом работы.
     func topItems(type: SubItemType, limit: Int = 5) -> [TopItem] {
-        // Собираем все подзаписи указанного типа
-        let allItems = works
-            .filter { $0.isDone }
-            .flatMap { $0.subWorks }
-            .filter { $0.type == type }
-        
-        // Группируем по названию (чтобы "Масло Mobil" суммировалось)
-        var totals: [String: (sum: Double, count: Int)] = [:]
-        for item in allItems {
-            let key = item.title
-            let current = totals[key] ?? (0, 0)
-            totals[key] = (current.sum + item.totalCost, current.count + 1)
+        // Собираем все подзаписи указанного типа вместе с контекстом
+        struct ItemWithContext {
+            let item: SubItem
+            let workTitle: String
+            let workDate: Date
         }
         
-        // Сортируем по убыванию суммы
-        return totals
-            .map { TopItem(title: $0.key, total: $0.value.sum, occurrences: $0.value.count) }
-            .sorted { $0.total > $1.total }
+        let allItems: [ItemWithContext] = works
+            .filter { $0.isDone }
+            .flatMap { work in
+                work.subWorks
+                    .filter { $0.type == type }
+                    .map { subItem in
+                        ItemWithContext(
+                            item: subItem,
+                            workTitle: work.title,
+                            workDate: work.date
+                        )
+                    }
+            }
+        
+        // Сортируем по цене (totalCost = quantity × unitPrice) — убывание
+        return allItems
+            .sorted { $0.item.totalCost > $1.item.totalCost }
             .prefix(limit)
-            .map { $0 }
+            .map { ctx in
+                TopItem(
+                    id: ctx.item.id,
+                    title: ctx.item.title,
+                    total: ctx.item.totalCost,
+                    occurrences: 1,
+                    workTitle: ctx.workTitle,
+                    workDate: ctx.workDate,
+                    quantity: ctx.item.quantity,
+                    unitPrice: ctx.item.unitPrice
+                )
+            }
     }
 }
 
@@ -296,9 +313,12 @@ struct MonthlyCostDetailed: Identifiable {
 }
 
 struct TopItem: Identifiable {
-    let title: String
-    let total: Double
-    let occurrences: Int
-    
-    var id: String { title }
+    let id: UUID                 // ← id подзаписи (уникальный)
+    let title: String            // название позиции
+    let total: Double            // итоговая стоимость (quantity × unitPrice)
+    let occurrences: Int         // всегда 1 (для совместимости)
+    let workTitle: String?       // к какой работе относится
+    let workDate: Date?          // дата работы
+    let quantity: Double?        // количество
+    let unitPrice: Double?       // цена за единицу
 }
