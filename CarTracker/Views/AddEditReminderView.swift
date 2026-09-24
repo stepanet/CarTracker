@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct AddEditReminderView: View {
-    @EnvironmentObject var reminderStore: ReminderStore
+    @EnvironmentObject var store: ReminderStore
     @Environment(\.dismiss) private var dismiss
 
     let reminder: Reminder?
@@ -14,6 +14,10 @@ struct AddEditReminderView: View {
     @State private var lastMileage = ""
     @State private var isEnabled = true
     @State private var showingDeleteAlert = false
+
+    // Состояние сохранения
+    @State private var isSaving = false
+    @State private var saveError: String?
 
     private var isEditing: Bool { reminder != nil }
 
@@ -115,6 +119,19 @@ struct AddEditReminderView: View {
                     Toggle("Напоминание включено", isOn: $isEnabled)
                 }
 
+                // MARK: Ошибка сохранения
+                if let saveError = saveError {
+                    Section {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red)
+                            Text(saveError)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+
                 // MARK: Удалить
                 if isEditing {
                     Section {
@@ -127,6 +144,7 @@ struct AddEditReminderView: View {
                                 Spacer()
                             }
                         }
+                        .disabled(isSaving)
                     }
                 }
             }
@@ -135,18 +153,25 @@ struct AddEditReminderView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Отмена") { dismiss() }
+                        .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Сохранить") { save() }
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button("Сохранить") {
+                            Task { await save() }
+                        }
                         .disabled(!isValid)
                         .fontWeight(.semibold)
+                    }
                 }
             }
             .onAppear { loadIfEditing() }
             .alert("Удалить напоминание?", isPresented: $showingDeleteAlert) {
                 Button("Отмена", role: .cancel) { }
                 Button("Удалить", role: .destructive) {
-                    deleteReminder()
+                    Task { await deleteReminder() }
                 }
             } message: {
                 Text("«\(title)» будет удалено. Отменить действие нельзя.")
@@ -198,11 +223,15 @@ struct AddEditReminderView: View {
     }
 
     // MARK: - Сохранение
-    private func save() {
+    @MainActor
+    private func save() async {
         let cleanedTitle = title.trimmingCharacters(in: .whitespaces)
         let km = Int(intervalKm) ?? 0
         let months = Int(intervalMonths) ?? 0
         let mileage = Int(lastMileage) ?? 0
+
+        isSaving = true
+        saveError = nil
 
         if var existing = reminder {
             existing.title = cleanedTitle
@@ -212,7 +241,7 @@ struct AddEditReminderView: View {
             existing.lastDate = lastDate
             existing.lastMileage = mileage
             existing.isEnabled = isEnabled
-            reminderStore.update(existing)
+            await store.update(existing)
         } else {
             let new = Reminder(
                 title: cleanedTitle,
@@ -223,30 +252,37 @@ struct AddEditReminderView: View {
                 lastMileage: mileage,
                 isEnabled: isEnabled
             )
-            reminderStore.add(new)
+            await store.add(new)
         }
 
-        rescheduleNotifications()
+        isSaving = false
+
+        // Проверяем, не появилась ли ошибка в сторе
+        if let storeError = store.error {
+            saveError = storeError
+            return
+        }
+
         dismiss()
     }
 
     // MARK: - Удаление
-    private func deleteReminder() {
+    @MainActor
+    private func deleteReminder() async {
         guard let reminder else { return }
-        NotificationManager.shared.cancel(for: reminder)
-        reminderStore.delete(reminder)
-        rescheduleNotifications()
-        dismiss()
-    }
 
-    // MARK: - Пересчёт уведомлений
-    private func rescheduleNotifications() {
-        // Мы не знаем текущий пробег здесь напрямую — на всякий случай
-        // используем lastMileage самого напоминания. Полный пересчёт
-        // произойдёт при следующем открытии экрана «Напоминания».
-        NotificationManager.shared.reschedule(
-            reminders: reminderStore.reminders,
-            currentMileage: reminderStore.reminders.map(\.lastMileage).max() ?? 0
-        )
+        isSaving = true
+        saveError = nil
+
+        await store.delete(reminder)
+
+        isSaving = false
+
+        if let storeError = store.error {
+            saveError = storeError
+            return
+        }
+
+        dismiss()
     }
 }

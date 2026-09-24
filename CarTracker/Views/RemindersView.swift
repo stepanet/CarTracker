@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct RemindersView: View {
     @EnvironmentObject var reminderStore: ReminderStore
@@ -34,6 +35,16 @@ struct RemindersView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                // Индикатор загрузки из облака
+                if reminderStore.isLoading && reminderStore.reminders.isEmpty {
+                    loadingIndicator
+                }
+
+                // Ошибка загрузки
+                if let error = reminderStore.error {
+                    errorBanner(error)
+                }
+
                 NotificationPermissionBanner()
 
                 Group {
@@ -55,20 +66,54 @@ struct RemindersView: View {
                     }
                 }
             }
-                .sheet(isPresented: $showingAdd) {
-                    AddEditReminderView(reminder: nil)
-                }
-                .sheet(item: $editingReminder) { reminder in
-                    AddEditReminderView(reminder: reminder)
-                }
+            .sheet(isPresented: $showingAdd) {
+                AddEditReminderView(reminder: nil)
+            }
+            .sheet(item: $editingReminder) { reminder in
+                AddEditReminderView(reminder: reminder)
+            }
             .onAppear {
-                // Каждый раз при открытии экрана — пересчитываем уведомления
                 NotificationManager.shared.reschedule(
                     reminders: reminderStore.reminders,
                     currentMileage: currentMileage
                 )
             }
         }
+    }
+
+    // MARK: - Индикаторы
+
+    private var loadingIndicator: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .scaleEffect(0.8)
+            Text("Загрузка напоминаний...")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(Color.blue.opacity(0.08))
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.primary)
+            Spacer()
+            Button {
+                reminderStore.error = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.12))
     }
 
     // MARK: - Список
@@ -106,6 +151,9 @@ struct RemindersView: View {
             }
         }
         .listStyle(.plain)
+        .refreshable {
+            await refresh()
+        }
     }
 
     // MARK: - Шапка со сводкой
@@ -141,25 +189,27 @@ struct RemindersView: View {
                 .font(.system(size: 64))
                 .foregroundStyle(.secondary)
 
-            Text("Пока нет напоминаний")
+            Text(reminderStore.isLoading ? "Загрузка..." : "Пока нет напоминаний")
                 .font(.title3)
                 .foregroundStyle(.secondary)
 
-            Text("Создайте правило — приложение\nподскажет, когда пора делать ТО")
-                .font(.caption)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.tertiary)
+            if !reminderStore.isLoading {
+                Text("Создайте правило — приложение\nподскажет, когда пора делать ТО")
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.tertiary)
 
-            Button {
-                installDefaults()
-            } label: {
-                Label("Установить типовой набор", systemImage: "wand.and.stars")
-                    .font(.subheadline.weight(.medium))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
+                Button {
+                    installDefaults()
+                } label: {
+                    Label("Установить типовой набор", systemImage: "wand.and.stars")
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding(.top, 8)
             }
-            .buttonStyle(.borderedProminent)
-            .padding(.top, 8)
 
             Spacer()
         }
@@ -169,22 +219,10 @@ struct RemindersView: View {
     // MARK: - Действия
 
     private func markDone(_ reminder: Reminder) {
-        reminderStore.markDone(reminder, currentMileage: currentMileage)
-        NotificationManager.shared.cancel(for: reminder)
-        NotificationManager.shared.reschedule(
-            reminders: reminderStore.reminders,
-            currentMileage: currentMileage
-        )
-    }
+        Task {
+            await reminderStore.markDone(reminder, currentMileage: currentMileage)
 
-    private func toggleEnabled(_ reminder: Reminder) {
-        var updated = reminder
-        updated.isEnabled.toggle()
-        reminderStore.update(updated)
-
-        if !updated.isEnabled {
             NotificationManager.shared.cancel(for: reminder)
-        } else {
             NotificationManager.shared.reschedule(
                 reminders: reminderStore.reminders,
                 currentMileage: currentMileage
@@ -192,13 +230,51 @@ struct RemindersView: View {
         }
     }
 
+    private func toggleEnabled(_ reminder: Reminder) {
+        var updated = reminder
+        updated.isEnabled.toggle()
+
+        Task {
+            await reminderStore.update(updated)
+
+            if !updated.isEnabled {
+                NotificationManager.shared.cancel(for: reminder)
+            } else {
+                NotificationManager.shared.reschedule(
+                    reminders: reminderStore.reminders,
+                    currentMileage: currentMileage
+                )
+            }
+        }
+    }
+
     private func deleteReminder(_ reminder: Reminder) {
-        NotificationManager.shared.cancel(for: reminder)
-        reminderStore.delete(reminder)
+        Task {
+            NotificationManager.shared.cancel(for: reminder)
+            await reminderStore.delete(reminder)
+        }
     }
 
     private func installDefaults() {
-        reminderStore.installDefaultSet()
+        Task {
+            await reminderStore.installDefaultSet()
+
+            NotificationManager.shared.reschedule(
+                reminders: reminderStore.reminders,
+                currentMileage: currentMileage
+            )
+        }
+    }
+
+    @MainActor
+    private func refresh() async {
+        await reminderStore.reload()
+
+        // Haptic feedback (работает только на реальном iPhone)
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+
+        // Пересчитываем уведомления
         NotificationManager.shared.reschedule(
             reminders: reminderStore.reminders,
             currentMileage: currentMileage

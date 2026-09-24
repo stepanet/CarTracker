@@ -13,17 +13,25 @@ struct AddEditWorkView: View {
     @State private var cost = ""
     @State private var note = ""
     @State private var isDone = true
-    // Состояния для подзаписей
+
+    // Подзаписи
     @State private var subWorks: [SubItem] = []
     @State private var editingSubItem: SubItem?
     @State private var newSubItemType: SubItemType = .work
     @State private var showingSubItemForm = false
 
+    // Состояние сохранения
+    @State private var isSaving = false
+    @State private var saveError: String?
+
     private var isEditing: Bool { work != nil }
+
     private var isValid: Bool {
         !title.trimmingCharacters(in: .whitespaces).isEmpty
     }
-    
+
+    // MARK: - Вычисляемые
+
     /// Есть ли у работы подзаписи
     private var hasSubItems: Bool {
         !subWorks.isEmpty
@@ -52,6 +60,7 @@ struct AddEditWorkView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // MARK: Работа
                 Section("Работа") {
                     TextField("Название (например: Замена масла)", text: $title)
                     Picker("Категория", selection: $category) {
@@ -62,6 +71,7 @@ struct AddEditWorkView: View {
                     Toggle("Выполнено", isOn: $isDone)
                 }
 
+                // MARK: Детали
                 Section("Детали") {
                     DatePicker("Дата", selection: $date, displayedComponents: .date)
                     HStack {
@@ -75,7 +85,7 @@ struct AddEditWorkView: View {
                     }
                 }
 
-                // Секция «Работы» — только если есть подработы-работы
+                // MARK: Секция «Работы»
                 if !workItems.isEmpty {
                     Section {
                         ForEach(workItems) { item in
@@ -112,7 +122,7 @@ struct AddEditWorkView: View {
                     }
                 }
 
-                // Секция «Детали» — только если есть подработы-детали
+                // MARK: Секция «Детали»
                 if !partItems.isEmpty {
                     Section {
                         ForEach(partItems) { item in
@@ -149,7 +159,7 @@ struct AddEditWorkView: View {
                     }
                 }
 
-                // Стоимость — либо автоматическая (если есть подзаписи), либо ручная
+                // MARK: Стоимость
                 Section("Стоимость") {
                     if hasSubItems {
                         HStack {
@@ -169,9 +179,23 @@ struct AddEditWorkView: View {
                     }
                 }
 
+                // MARK: Заметки
                 Section("Заметки") {
                     TextField("Комментарий", text: $note, axis: .vertical)
                         .lineLimit(3...6)
+                }
+
+                // MARK: Ошибка сохранения
+                if let saveError = saveError {
+                    Section {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red)
+                            Text(saveError)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
                 }
             }
             .navigationTitle(isEditing ? "Редактирование" : "Новая работа")
@@ -179,10 +203,18 @@ struct AddEditWorkView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Отмена") { dismiss() }
+                        .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Сохранить") { save() }
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button("Сохранить") {
+                            Task { await save() }
+                        }
                         .disabled(!isValid)
+                        .fontWeight(.semibold)
+                    }
                 }
             }
             .onAppear { loadIfEditing() }
@@ -205,6 +237,8 @@ struct AddEditWorkView: View {
         }
     }
 
+    // MARK: - Загрузка при редактировании
+
     private func loadIfEditing() {
         guard let work else { return }
         title = work.title
@@ -214,10 +248,13 @@ struct AddEditWorkView: View {
         cost = work.cost > 0 ? String(format: "%.2f", work.cost) : ""
         note = work.note
         isDone = work.isDone
-        subWorks = work.subWorks    // ← ЗАГРУЖАЕМ ПОДЗАПИСИ
+        subWorks = work.subWorks
     }
 
-    private func save() {
+    // MARK: - Сохранение
+
+    @MainActor
+    private func save() async {
         let cleanedTitle = title.trimmingCharacters(in: .whitespaces)
         let mileageValue = Int(mileage) ?? 0
 
@@ -230,6 +267,9 @@ struct AddEditWorkView: View {
             costValue = Double(cost.replacingOccurrences(of: ",", with: ".")) ?? 0
         }
 
+        isSaving = true
+        saveError = nil
+
         if var existing = work {
             existing.title = cleanedTitle
             existing.category = category
@@ -238,24 +278,33 @@ struct AddEditWorkView: View {
             existing.cost = costValue
             existing.note = note
             existing.isDone = isDone
-            existing.subWorks = subWorks    // ← СОХРАНЯЕМ ПОДЗАПИСИ
-            store.update(existing)
+            existing.subWorks = subWorks
+            await store.update(existing)
         } else {
-            let newWork = CarWork(
+            var newWork = CarWork(
                 title: cleanedTitle,
                 category: category,
                 date: date,
                 mileage: mileageValue,
                 cost: costValue,
                 note: note,
-                isDone: isDone,
-                subWorks: subWorks    // ← ПЕРЕДАЁМ ПОДЗАПИСИ
+                isDone: isDone
             )
-            store.add(newWork)
+            newWork.subWorks = subWorks
+            await store.add(newWork)
         }
+
+        isSaving = false
+
+        // Проверяем, не появилась ли ошибка в сторе
+        if let storeError = store.error {
+            saveError = storeError
+            return
+        }
+
         dismiss()
     }
-    
+
     // MARK: - Подзаписи
 
     private func openAddSubItem(type: SubItemType) {
@@ -281,10 +330,8 @@ struct AddEditWorkView: View {
         if hasSubItems {
             cost = ""
         }
-        
-        // Сбрасываем состояние — важно для .sheet(item:)
-               editingSubItem = nil
-               showingSubItemForm = false
+        editingSubItem = nil
+        showingSubItemForm = false
     }
 
     private func deleteSubItem(_ item: SubItem) {
@@ -294,6 +341,8 @@ struct AddEditWorkView: View {
             cost = String(format: "%.0f", item.totalCost)
         }
     }
+
+    // MARK: - Форматирование
 
     private func formatMoney(_ value: Double) -> String {
         let f = NumberFormatter()

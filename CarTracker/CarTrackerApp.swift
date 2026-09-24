@@ -1,4 +1,6 @@
 import SwiftUI
+import Auth
+import Foundation
 
 @main
 struct CarTrackerApp: App {
@@ -15,15 +17,14 @@ struct CarTrackerApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if authManager.user != nil {
+                if let user = authManager.user {
                     ContentView()
                         .environmentObject(workStore)
                         .environmentObject(reminderStore)
                         .environmentObject(authManager)
-                        .onAppear {
-                            setupBackgroundTask()
-                            handleFirstLaunch()
-                            rescheduleNotifications()
+                        .task {
+                            // Загрузка данных при появлении основного экрана
+                            await bootstrap(userId: user.id)
                         }
                 } else {
                     AuthView()
@@ -34,11 +35,52 @@ struct CarTrackerApp: App {
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             if newPhase == .active {
+                if let user = authManager.user {
+                    Task {
+                        await workStore.loadWorks(userId: user.id)
+                        await workStore.unsubscribeRealtime()
+                        workStore.subscribeRealtime(userId: user.id)
+
+                        await reminderStore.loadReminders(userId: user.id)
+                        await reminderStore.unsubscribeRealtime()
+                        reminderStore.subscribeRealtime(userId: user.id)
+                    }
+                }
                 rescheduleNotifications()
             } else if newPhase == .background {
                 BackgroundTaskManager.shared.scheduleRefresh()
             }
         }
+    }
+
+    // MARK: - Bootstrap
+
+    /// Загрузка данных при входе пользователя
+    @MainActor
+    private func bootstrap(userId: UUID) async {
+        // 1. Миграция UserDefaults → Supabase
+        let migratedWorks = await workStore.migrateFromUserDefaults(userId: userId)
+        if migratedWorks > 0 {
+            print("📤 Мигрировано работ: \(migratedWorks)")
+        }
+
+        let migratedReminders = await reminderStore.migrateFromUserDefaults(userId: userId)
+        if migratedReminders > 0 {
+            print("📤 Мигрировано напоминаний: \(migratedReminders)")
+        }
+
+        // 2. Загрузка из Supabase
+        await workStore.loadWorks(userId: userId)
+        await reminderStore.loadReminders(userId: userId)
+
+        // 3. Подписки Realtime
+        workStore.subscribeRealtime(userId: userId)
+        reminderStore.subscribeRealtime(userId: userId)
+
+        // 4. Остальные настройки
+        setupBackgroundTask()
+        handleFirstLaunch()
+        rescheduleNotifications()
     }
 
     // MARK: - Фоновые задачи

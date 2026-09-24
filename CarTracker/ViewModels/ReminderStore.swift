@@ -1,68 +1,171 @@
 import Foundation
 import Combine
 
+/// Хранилище напоминаний.
+/// Работает с Supabase через `RemindersRepository`.
 final class ReminderStore: ObservableObject {
-    @Published var reminders: [Reminder] = [] {
-        didSet { save() }
+
+    // MARK: - Published
+
+    @Published var reminders: [Reminder] = []
+    @Published var isLoading: Bool = false
+    @Published var error: String?
+
+    // MARK: - Dependencies
+
+    private let repository = RemindersRepository.shared
+    private let realtime = RealtimeManager.shared
+    private var userId: UUID?
+
+    // MARK: - Init
+
+    init() {
+        // При старте ничего не грузим — загрузка идёт из CarTrackerApp
     }
 
-    private let saveKey = "car_reminders_v1"
+    // MARK: - Загрузка / Realtime
 
-    init() { load() }
+    /// Загрузить напоминания из Supabase
+    @MainActor
+    func loadReminders(userId: UUID) async {
+        self.userId = userId
+        isLoading = true
+        error = nil
+
+        do {
+            let fetched = try await repository.fetchAll(userId: userId)
+            self.reminders = sortReminders(fetched)
+            isLoading = false
+            print("✅ Загружено напоминаний: \(fetched.count)")
+        } catch {
+            self.error = error.localizedDescription
+            isLoading = false
+            print("❌ Ошибка загрузки напоминаний: \(error)")
+        }
+    }
+
+    /// Перезагрузить данные (для pull-to-refresh)
+    @MainActor
+    func reload() async {
+        guard let userId = userId else {
+            print("⚠️ Нет userId для reload напоминаний")
+            return
+        }
+        await loadReminders(userId: userId)
+    }
+
+    /// Подписаться на Realtime-изменения
+    @MainActor
+    func subscribeRealtime(userId: UUID) {
+        realtime.onRemindersChanged = { [weak self] in
+            guard let self = self else { return }
+            Task {
+                await self.loadReminders(userId: userId)
+            }
+        }
+
+        realtime.subscribeReminders(userId: userId)
+    }
+
+    /// Отписаться от Realtime
+    @MainActor
+    func unsubscribeRealtime() async {
+        realtime.onRemindersChanged = nil
+        await realtime.unsubscribeReminders()
+    }
+
+    /// Очистить данные (при выходе)
+    @MainActor
+    func clear() {
+        reminders = []
+        userId = nil
+        error = nil
+    }
 
     // MARK: - CRUD
 
-    func add(_ reminder: Reminder) {
-        reminders.append(reminder)
-        sortReminders()
-    }
+    @MainActor
+    func add(_ reminder: Reminder) async {
+        guard let userId = userId else {
+            error = "Не авторизован"
+            return
+        }
 
-    func update(_ reminder: Reminder) {
-        if let idx = reminders.firstIndex(where: { $0.id == reminder.id }) {
-            reminders[idx] = reminder
-            sortReminders()
+        // 1. Оптимистично добавляем
+        var newReminders: [Reminder] = reminders
+        newReminders.append(reminder)
+        reminders = sortReminders(newReminders)
+
+        // 2. Сохраняем в Supabase
+        do {
+            try await repository.create(reminder, userId: userId)
+        } catch {
+            reminders.removeAll { $0.id == reminder.id }
+            self.error = error.localizedDescription
+            print("❌ Ошибка создания напоминания: \(error)")
         }
     }
 
-    func delete(_ reminder: Reminder) {
+    @MainActor
+    func update(_ reminder: Reminder) async {
+        guard let userId = userId else {
+            error = "Не авторизован"
+            return
+        }
+
+        let previous: Reminder? = reminders.first { $0.id == reminder.id }
+
+        // 1. Оптимистично обновляем
+        if let index = reminders.firstIndex(where: { $0.id == reminder.id }) {
+            reminders[index] = reminder
+            reminders = sortReminders(reminders)
+        }
+
+        // 2. Сохраняем в Supabase
+        do {
+            try await repository.update(reminder, userId: userId)
+        } catch {
+            if let prev = previous,
+               let index = reminders.firstIndex(where: { $0.id == prev.id }) {
+                reminders[index] = prev
+                reminders = sortReminders(reminders)
+            }
+            self.error = error.localizedDescription
+            print("❌ Ошибка обновления напоминания: \(error)")
+        }
+    }
+
+    @MainActor
+    func delete(_ reminder: Reminder) async {
+        let previous: [Reminder] = reminders
+
+        // 1. Оптимистично удаляем
         reminders.removeAll { $0.id == reminder.id }
-    }
 
-    private func sortReminders() {
-        // Сортируем по статусу: сначала "пора", потом "скоро", потом остальные
-        reminders.sort { lhs, rhs in
-            statusOrder(lhs.status(currentMileage: 0)) <
-            statusOrder(rhs.status(currentMileage: 0))
-        }
-    }
-    
-    /// Заменить весь массив напоминаний (при импорте бэкапа)
-    func replaceAll(with newReminders: [Reminder]) {
-        reminders = newReminders
-        sortReminders()
-    }
-
-    private func statusOrder(_ status: ReminderStatus) -> Int {
-        switch status {
-        case .overdue: return 0
-        case .soon: return 1
-        case .ok: return 2
-        case .disabled: return 3
+        // 2. Удаляем из Supabase
+        do {
+            try await repository.delete(id: reminder.id)
+        } catch {
+            reminders = previous
+            self.error = error.localizedDescription
+            print("❌ Ошибка удаления напоминания: \(error)")
         }
     }
 
     // MARK: - Действия
 
     /// Пометить как выполненное сегодня
-    func markDone(_ reminder: Reminder, currentMileage: Int) {
-        guard var existing = reminders.first(where: { $0.id == reminder.id }) else { return }
-        existing.lastDate = Date()
-        existing.lastMileage = currentMileage
-        update(existing)
+    @MainActor
+    func markDone(_ reminder: Reminder, currentMileage: Int) async {
+        var updated = reminder
+        updated.lastDate = Date()
+        updated.lastMileage = currentMileage
+        await update(updated)
     }
 
     /// Добавить типовой набор напоминаний
-    func installDefaultSet() {
+    @MainActor
+    func installDefaultSet() async {
         let defaults: [Reminder] = [
             Reminder(
                 title: "Замена масла",
@@ -97,8 +200,10 @@ final class ReminderStore: ObservableObject {
                 lastMileage: 0
             )
         ]
-        reminders.append(contentsOf: defaults)
-        sortReminders()
+
+        for reminder in defaults {
+            await add(reminder)
+        }
     }
 
     /// Напоминания, требующие внимания (для бейджа на вкладке)
@@ -109,23 +214,60 @@ final class ReminderStore: ObservableObject {
         }
     }
 
-    // MARK: - Persistence
+    // MARK: - Миграция
 
-    private func save() {
-        if let data = try? JSONEncoder().encode(reminders) {
-            UserDefaults.standard.set(data, forKey: saveKey)
+    /// Перенести данные из UserDefaults в Supabase (одноразово).
+    /// Возвращает количество перенесённых напоминаний.
+    @MainActor
+    func migrateFromUserDefaults(userId: UUID) async -> Int {
+        let key = "car_reminders_v1"
+
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([Reminder].self, from: data),
+              !decoded.isEmpty
+        else {
+            return 0
+        }
+
+        do {
+            let count = try await repository.bulkInsert(decoded, userId: userId)
+
+            // Удаляем старый ключ — миграция завершена
+            UserDefaults.standard.removeObject(forKey: key)
+
+            if count > 0 {
+                print("📤 Мигрировано напоминаний: \(count)")
+            } else {
+                print("ℹ️ Напоминания уже были в базе")
+            }
+
+            return count
+        } catch {
+            print("❌ Ошибка миграции напоминаний: \(error)")
+            return 0
         }
     }
 
-    private func load() {
-        guard let data = UserDefaults.standard.data(forKey: saveKey),
-              let decoded = try? JSONDecoder().decode([Reminder].self, from: data)
-        else { return }
-        reminders = decoded
+    // MARK: - Приватные
+
+    private func sortReminders(_ reminders: [Reminder]) -> [Reminder] {
+        reminders.sorted { lhs, rhs in
+            statusOrder(lhs.status(currentMileage: 0)) <
+            statusOrder(rhs.status(currentMileage: 0))
+        }
+    }
+
+    private func statusOrder(_ status: ReminderStatus) -> Int {
+        switch status {
+        case .overdue: return 0
+        case .soon: return 1
+        case .ok: return 2
+        case .disabled: return 3
+        }
     }
 }
 
-// MARK: - Логика статуса
+// MARK: - Логика статуса (extension Reminder)
 
 extension Reminder {
     /// Определить статус напоминания исходя из текущего пробега
@@ -141,7 +283,6 @@ extension Reminder {
             ).day ?? 0
 
             if daysLeft < 0 { return .overdue }
-            // "Скоро" — если осталось меньше 30 дней
             if daysLeft < 30 { return .soon }
         }
 
@@ -150,7 +291,6 @@ extension Reminder {
             let kmLeft = nextMileage - currentMileage
 
             if kmLeft < 0 { return .overdue }
-            // "Скоро" — если осталось меньше 1000 км
             if kmLeft < 1_000 { return .soon }
         }
 
@@ -163,7 +303,6 @@ extension Reminder {
 
         var parts: [String] = []
 
-        // По пробегу
         if let nextMileage = nextMileage {
             let kmLeft = nextMileage - currentMileage
             if kmLeft < 0 {
@@ -173,7 +312,6 @@ extension Reminder {
             }
         }
 
-        // По дате
         if let nextDate = nextDate {
             let days = Calendar.current.dateComponents(
                 [.day],

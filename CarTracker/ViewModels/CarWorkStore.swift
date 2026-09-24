@@ -1,146 +1,266 @@
 import Foundation
 import Combine
 
+/// Хранилище работ.
+/// Работает с Supabase через `WorksRepository`.
 final class CarWorkStore: ObservableObject {
-    @Published var works: [CarWork] = [] {
-        didSet { save() }
+
+    // MARK: - Published
+
+    @Published var works: [CarWork] = []
+    @Published var isLoading: Bool = false
+    @Published var error: String?
+
+    // MARK: - Dependencies
+
+    private let repository = WorksRepository.shared
+    private let realtime = RealtimeManager.shared
+    private var userId: UUID?
+
+    // MARK: - Init
+
+    init() {
+        // При старте ничего не грузим — загрузка идёт из CarTrackerApp
     }
-    
-    private let saveKey = "car_works_v1"
-    
-    init() { load() }
-    
-    // MARK: - CRUD
-    func add(_ work: CarWork) {
-        var newWork = work
-        // Если есть подработы — считаем стоимость автоматически
-        if !newWork.subWorks.isEmpty {
-            newWork.cost = newWork.subWorksTotal
+
+    // MARK: - Загрузка / Realtime
+
+    /// Загрузить работы из Supabase
+    @MainActor
+    func loadWorks(userId: UUID) async {
+        self.userId = userId
+        isLoading = true
+        error = nil
+
+        do {
+            let fetched = try await repository.fetchAll(userId: userId)
+            self.works = sortWorks(fetched)
+            isLoading = false
+            print("✅ Загружено работ: \(fetched.count)")
+        } catch {
+            self.error = error.localizedDescription
+            isLoading = false
+            print("❌ Ошибка загрузки работ: \(error)")
         }
-        works.append(newWork)
-        sortWorks()
     }
     
-    func update(_ work: CarWork) {
-        guard let idx = works.firstIndex(where: { $0.id == work.id }) else { return }
-        var updated = work
-        // Если есть подработы — стоимость = сумма подработ
-        if !updated.subWorks.isEmpty {
-            updated.cost = updated.subWorksTotal
+    /// Перезагрузить данные, используя сохранённый userId.
+    /// Используется для pull-to-refresh.
+    @MainActor
+    func reload() async {
+        guard let userId = userId else {
+            print("⚠️ Нет userId для reload")
+            return
         }
-        works[idx] = updated
-        sortWorks()
+        await loadWorks(userId: userId)
     }
-    
-    func delete(_ work: CarWork) {
+
+    /// Подписаться на Realtime-изменения
+    @MainActor
+    func subscribeRealtime(userId: UUID) {
+        realtime.onWorksChanged = { [weak self] in
+            guard let self = self else { return }
+            Task {
+                await self.loadWorks(userId: userId)
+            }
+        }
+
+        realtime.subscribeWorks(userId: userId)
+    }
+
+    /// Отписаться от Realtime
+    @MainActor
+    func unsubscribeRealtime() async {
+        realtime.onWorksChanged = nil
+        await realtime.unsubscribeWorks()
+    }
+
+    /// Очистить данные (при выходе)
+    @MainActor
+    func clear() {
+        works = []
+        userId = nil
+        error = nil
+    }
+
+    // MARK: - CRUD работы
+
+    @MainActor
+    func add(_ work: CarWork) async {
+        guard let userId = userId else {
+            error = "Не авторизован"
+            return
+        }
+
+        let normalized: CarWork = normalizeCost(work)
+
+        // 1. Оптимистично добавляем
+        var newWorks: [CarWork] = works
+        newWorks.append(normalized)
+        works = sortWorks(newWorks)
+
+        // 2. Сохраняем в Supabase
+        do {
+            try await repository.create(normalized, userId: userId)
+        } catch {
+            // Откатываем
+            works.removeAll { $0.id == normalized.id }
+            self.error = error.localizedDescription
+            print("❌ Ошибка создания работы: \(error)")
+        }
+    }
+
+    @MainActor
+    func update(_ work: CarWork) async {
+        guard let userId = userId else {
+            error = "Не авторизован"
+            return
+        }
+
+        let normalized: CarWork = normalizeCost(work)
+        let previous: CarWork? = works.first { $0.id == work.id }
+
+        // 1. Оптимистично обновляем
+        if let index = works.firstIndex(where: { $0.id == normalized.id }) {
+            works[index] = normalized
+            works = sortWorks(works)
+        }
+
+        // 2. Сохраняем в Supabase
+        do {
+            try await repository.update(normalized, userId: userId)
+        } catch {
+            // Откатываем
+            if let prev = previous,
+               let index = works.firstIndex(where: { $0.id == prev.id }) {
+                works[index] = prev
+                works = sortWorks(works)
+            }
+            self.error = error.localizedDescription
+            print("❌ Ошибка обновления работы: \(error)")
+        }
+    }
+
+    @MainActor
+    func remove(_ work: CarWork) async {
+        let previous: [CarWork] = works
+
+        // 1. Оптимистично удаляем
         works.removeAll { $0.id == work.id }
+
+        // 2. Удаляем из Supabase
+        do {
+            try await repository.delete(id: work.id)
+        } catch {
+            // Откатываем
+            works = previous
+            self.error = error.localizedDescription
+            print("❌ Ошибка удаления работы: \(error)")
+        }
     }
-    
-    /// Заменить весь массив работ (используется при импорте бэкапа)
-    func replaceAll(with newWorks: [CarWork]) {
-        works = newWorks
-        sortWorks()
+
+    // MARK: - Подработы (через update)
+
+    @MainActor
+    func addSubItem(to workId: UUID, item: SubItem) async {
+        guard let work = works.first(where: { $0.id == workId }) else { return }
+        var updated: CarWork = work
+        updated.subWorks.append(item)
+        await update(updated)
     }
-    
-    func delete(at offsets: IndexSet, in list: [CarWork]) {
-        let ids = offsets.map { list[$0].id }
-        works.removeAll { ids.contains($0.id) }
+
+    @MainActor
+    func updateSubItem(in workId: UUID, item: SubItem) async {
+        guard let work = works.first(where: { $0.id == workId }) else { return }
+        var updated: CarWork = work
+        if let index = updated.subWorks.firstIndex(where: { $0.id == item.id }) {
+            updated.subWorks[index] = item
+        }
+        await update(updated)
     }
-    
-    // MARK: - Подзаписи (работы и детали)
-    
-    /// Добавить подзапись к работе
-    func addSubItem(to workId: UUID, item: SubItem) {
-        guard let index = works.firstIndex(where: { $0.id == workId }) else { return }
-        works[index].subWorks.append(item)
-        recalculateCost(at: index)
-        sortWorks() // не обязательно, но подстрахуемся
+
+    @MainActor
+    func removeSubItem(from workId: UUID, itemId: UUID) async {
+        guard let work = works.first(where: { $0.id == workId }) else { return }
+        var updated: CarWork = work
+        updated.subWorks.removeAll { $0.id == itemId }
+        await update(updated)
     }
-    
-    /// Обновить подзапись
-    func updateSubItem(in workId: UUID, item: SubItem) {
-        guard let workIndex = works.firstIndex(where: { $0.id == workId }),
-              let itemIndex = works[workIndex].subWorks.firstIndex(where: { $0.id == item.id })
-        else { return }
-        
-        works[workIndex].subWorks[itemIndex] = item
-        recalculateCost(at: workIndex)
+
+    // MARK: - Миграция
+
+    /// Перенести данные из UserDefaults в Supabase (одноразово).
+    /// Возвращает количество перенесённых работ.
+    @MainActor
+    func migrateFromUserDefaults(userId: UUID) async -> Int {
+        let key = "car_works_v1"
+
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([CarWork].self, from: data),
+              !decoded.isEmpty
+        else {
+            return 0
+        }
+
+        do {
+            let count = try await repository.bulkInsert(decoded, userId: userId)
+
+            // Удаляем старый ключ — миграция завершена
+            UserDefaults.standard.removeObject(forKey: key)
+
+            if count > 0 {
+                print("📤 Мигрировано работ: \(count)")
+            } else {
+                print("ℹ️ Работы уже были в базе")
+            }
+
+            return count
+        } catch {
+            print("❌ Ошибка миграции работ: \(error)")
+            return 0
+        }
     }
-    
-    /// Удалить подзапись
-    func removeSubItem(from workId: UUID, itemId: UUID) {
-        guard let workIndex = works.firstIndex(where: { $0.id == workId }) else { return }
-        works[workIndex].subWorks.removeAll { $0.id == itemId }
-        recalculateCost(at: workIndex)
-    }
-    
-    /// Удалить все подзаписи работы
-    func clearSubItems(from workId: UUID) {
-        guard let workIndex = works.firstIndex(where: { $0.id == workId }) else { return }
-        works[workIndex].subWorks.removeAll()
-        recalculateCost(at: workIndex)
-    }
-    
-    /// Пересчитать `cost` работы: если есть подзаписи — сумма подзаписей.
-    /// Если подзаписей нет — оставляем введённое значение.
-    private func recalculateCost(at index: Int) {
-        let work = works[index]
-        guard !work.subWorks.isEmpty else { return }
-        works[index].cost = work.subWorksTotal
-    }
-    
-    
-    private func sortWorks() {
-        works.sort { $0.date > $1.date }
-    }
-    
-    // MARK: - Статистика
+
+    // MARK: - Утилиты (синхронные)
+
     var totalCost: Double {
         works.filter { $0.isDone }.reduce(0) { $0 + $1.cost }
     }
-    
+
     var totalCostThisYear: Double {
         let year = Calendar.current.component(.year, from: Date())
-        return works.filter {
-            $0.isDone && Calendar.current.component(.year, from: $0.date) == year
-        }.reduce(0) { $0 + $1.cost }
-    }
-    
-    func costByCategory() -> [(WorkCategory: CarWork.WorkCategory, sum: Double)] {
-        Dictionary(grouping: works.filter { $0.isDone }, by: { $0.category })
-            .map { (key, value) in
-                (WorkCategory: key, sum: value.reduce(0) { $0 + $1.cost })
+        return works
+            .filter {
+                $0.isDone &&
+                Calendar.current.component(.year, from: $0.date) == year
             }
-            .sorted { $0.sum > $1.sum }
+            .reduce(0) { $0 + $1.cost }
     }
-    
-    // MARK: - Persistence
-    private func save() {
-        if let data = try? JSONEncoder().encode(works) {
-            UserDefaults.standard.set(data, forKey: saveKey)
-        }
+
+    var totalWorksCost: Double {
+        works.filter { $0.isDone }
+            .flatMap { $0.subWorks }
+            .filter { $0.type == .work }
+            .reduce(0) { $0 + $1.totalCost }
     }
-    
-    private func load() {
-        guard let data = UserDefaults.standard.data(forKey: saveKey),
-              let decoded = try? JSONDecoder().decode([CarWork].self, from: data)
-                else { return }
-        works = decoded
+
+    var totalPartsCost: Double {
+        works.filter { $0.isDone }
+            .flatMap { $0.subWorks }
+            .filter { $0.type == .part }
+            .reduce(0) { $0 + $1.totalCost }
     }
-    
-    // MARK: - Данные для графиков
-    
-    /// Расходы по месяцам за последние N месяцев
+
     func monthlyCosts(monthsBack: Int = 6) -> [MonthlyCost] {
         let calendar = Calendar.current
         let now = Date()
-        
         var result: [MonthlyCost] = []
+
         for offset in stride(from: monthsBack - 1, through: 0, by: -1) {
             guard let monthDate = calendar.date(
                 byAdding: .month, value: -offset, to: now
             ) else { continue }
-            
+
             let components = calendar.dateComponents([.year, .month], from: monthDate)
             let sum = works
                 .filter { $0.isDone }
@@ -149,7 +269,7 @@ final class CarWorkStore: ObservableObject {
                     return c.year == components.year && c.month == components.month
                 }
                 .reduce(0) { $0 + $1.cost }
-            
+
             result.append(MonthlyCost(
                 month: monthDate,
                 label: Self.monthFormatter.string(from: monthDate),
@@ -158,80 +278,38 @@ final class CarWorkStore: ObservableObject {
         }
         return result
     }
-    
-    /// Расходы по категориям
-    func categoryCosts() -> [CategoryCost] {
-        Dictionary(grouping: works.filter { $0.isDone }, by: { $0.category })
-            .map { (key, value) in
-                CategoryCost(category: key, total: value.reduce(0) { $0 + $1.cost })
-            }
-            .filter { $0.total > 0 }
-            .sorted { $0.total > $1.total }
-    }
-    
-    private static let monthFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "ru_RU")
-        f.dateFormat = "LLL"
-        return f
-    }()
-    
-    // MARK: - Статистика 2.0 (работы / детали / топ позиций)
-    
-    /// Общая сумма работ (услуг) — из подзаписей типа .work
-    var totalWorksCost: Double {
-        works.filter { $0.isDone }
-            .flatMap { $0.subWorks }
-            .filter { $0.type == .work }
-            .reduce(0) { $0 + $1.totalCost }
-    }
-    
-    /// Общая сумма деталей — из подзаписей типа .part
-    var totalPartsCost: Double {
-        works.filter { $0.isDone }
-            .flatMap { $0.subWorks }
-            .filter { $0.type == .part }
-            .reduce(0) { $0 + $1.totalCost }
-    }
-    
-    /// Сумма работ и деталей по месяцам (для stacked bar)
+
     func monthlyCostsDetailed(monthsBack: Int = 6) -> [MonthlyCostDetailed] {
         let calendar = Calendar.current
         let now = Date()
-        
         var result: [MonthlyCostDetailed] = []
+
         for offset in stride(from: monthsBack - 1, through: 0, by: -1) {
             guard let monthDate = calendar.date(
                 byAdding: .month, value: -offset, to: now
             ) else { continue }
-            
+
             let components = calendar.dateComponents([.year, .month], from: monthDate)
-            
-            // Все работы этого месяца
             let worksInMonth = works.filter {
                 guard $0.isDone else { return false }
                 let c = calendar.dateComponents([.year, .month], from: $0.date)
                 return c.year == components.year && c.month == components.month
             }
-            
-            // Работы (услуги)
+
             let worksSum = worksInMonth
                 .flatMap { $0.subWorks }
                 .filter { $0.type == .work }
                 .reduce(0) { $0 + $1.totalCost }
-            
-            // Детали
+
             let partsSum = worksInMonth
                 .flatMap { $0.subWorks }
                 .filter { $0.type == .part }
                 .reduce(0) { $0 + $1.totalCost }
-            
-            // Работы БЕЗ подработ (только cost) — относим к "работам"
-            // (потому что у таких работ обычно просто общая сумма)
+
             let worksWithoutSubs = worksInMonth
                 .filter { $0.subWorks.isEmpty }
                 .reduce(0) { $0 + $1.cost }
-            
+
             result.append(MonthlyCostDetailed(
                 month: monthDate,
                 label: Self.monthFormatter.string(from: monthDate),
@@ -241,17 +319,23 @@ final class CarWorkStore: ObservableObject {
         }
         return result
     }
-    
-    /// Топ-N затрат (работ или деталей) за всё время.
-    /// Каждое использование — отдельная строка, с контекстом работы.
+
+    func categoryCosts() -> [CategoryCost] {
+        Dictionary(grouping: works.filter { $0.isDone }, by: { $0.category })
+            .map { (key, value) in
+                CategoryCost(category: key, total: value.reduce(0) { $0 + $1.cost })
+            }
+            .filter { $0.total > 0 }
+            .sorted { $0.total > $1.total }
+    }
+
     func topItems(type: SubItemType, limit: Int = 5) -> [TopItem] {
-        // Собираем все подзаписи указанного типа вместе с контекстом
         struct ItemWithContext {
             let item: SubItem
             let workTitle: String
             let workDate: Date
         }
-        
+
         let allItems: [ItemWithContext] = works
             .filter { $0.isDone }
             .flatMap { work in
@@ -265,8 +349,7 @@ final class CarWorkStore: ObservableObject {
                         )
                     }
             }
-        
-        // Сортируем по цене (totalCost = quantity × unitPrice) — убывание
+
         return allItems
             .sorted { $0.item.totalCost > $1.item.totalCost }
             .prefix(limit)
@@ -283,9 +366,29 @@ final class CarWorkStore: ObservableObject {
                 )
             }
     }
+
+    private static let monthFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ru_RU")
+        f.dateFormat = "LLL"
+        return f
+    }()
+
+    // MARK: - Приватные
+
+    private func sortWorks(_ works: [CarWork]) -> [CarWork] {
+        works.sorted { $0.date > $1.date }
+    }
+
+    private func normalizeCost(_ work: CarWork) -> CarWork {
+        guard !work.subWorks.isEmpty else { return work }
+        var normalized: CarWork = work
+        normalized.cost = work.subWorksTotal
+        return normalized
+    }
 }
 
-// MARK: - Вспомогательные модели
+// MARK: - Модели для статистики
 
 struct MonthlyCost: Identifiable {
     let month: Date
@@ -294,31 +397,32 @@ struct MonthlyCost: Identifiable {
     var id: Date { month }
 }
 
+struct MonthlyCostDetailed: Identifiable {
+    let month: Date
+    let label: String
+    let worksTotal: Double
+    let partsTotal: Double
+
+    var id: Date { month }
+    var total: Double { worksTotal + partsTotal }
+}
+
 struct CategoryCost: Identifiable {
     let category: CarWork.WorkCategory
     let total: Double
     var id: String { category.rawValue }
 }
 
-// MARK: - Расширенные модели для статистики
-
-struct MonthlyCostDetailed: Identifiable {
-    let month: Date
-    let label: String
-    let worksTotal: Double
-    let partsTotal: Double
-    
-    var id: Date { month }
-    var total: Double { worksTotal + partsTotal }
-}
-
 struct TopItem: Identifiable {
-    let id: UUID                 // ← id подзаписи (уникальный)
-    let title: String            // название позиции
-    let total: Double            // итоговая стоимость (quantity × unitPrice)
-    let occurrences: Int         // всегда 1 (для совместимости)
-    let workTitle: String?       // к какой работе относится
-    let workDate: Date?          // дата работы
-    let quantity: Double?        // количество
-    let unitPrice: Double?       // цена за единицу
+    let id: UUID
+    let title: String
+    let total: Double
+    let occurrences: Int
+    let workTitle: String?
+    let workDate: Date?
+    let quantity: Double?
+    let unitPrice: Double?
 }
+
+typealias WorkCategory = CarWork.WorkCategory
+// SubItemType определён глобально в SubItem.swift

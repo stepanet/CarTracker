@@ -1,13 +1,17 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit          // ← для UIImpactFeedbackGenerator
 
 struct WorksListView: View {
     @EnvironmentObject var store: CarWorkStore
-    @EnvironmentObject var reminderStore: ReminderStore
+
     @State private var showingAdd = false
     @State private var editingWork: CarWork?
+    @State private var viewingWork: CarWork?
     @State private var searchText = ""
     @State private var selectedCategory: CarWork.WorkCategory? = nil
+    @State private var savingError: String?
+
     // Состояния для экспорта/импорта
     @State private var showingShareSheet = false
     @State private var shareURL: URL?
@@ -27,6 +31,21 @@ struct WorksListView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                // Индикатор загрузки из облака
+                if store.isLoading && store.works.isEmpty {
+                    loadingIndicator
+                }
+
+                // Ошибка загрузки
+                if let error = store.error {
+                    errorBanner(error)
+                }
+
+                // Ошибка сохранения (локальная)
+                if let savingError = savingError {
+                    savingErrorBanner(savingError)
+                }
+
                 summaryHeader
 
                 categoryPicker
@@ -37,7 +56,7 @@ struct WorksListView: View {
                     worksList
                 }
             }
-            .navigationTitle("Мой автомобиль")
+            .navigationTitle("Мои работы")
             .searchable(text: $searchText, prompt: "Поиск работ")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -82,6 +101,13 @@ struct WorksListView: View {
             .sheet(item: $editingWork) { work in
                 AddEditWorkView(work: work)
             }
+            .sheet(item: $viewingWork) { work in
+                NavigationStack {
+                    WorkDetailView(work: work) {
+                        editingWork = work
+                    }
+                }
+            }
             .sheet(isPresented: $showingShareSheet) {
                 if let url = shareURL {
                     ShareSheet(items: [url])
@@ -104,7 +130,63 @@ struct WorksListView: View {
         }
     }
 
+    // MARK: - Индикаторы
+
+    private var loadingIndicator: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .scaleEffect(0.8)
+            Text("Загрузка данных из облака...")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(Color.blue.opacity(0.08))
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.primary)
+            Spacer()
+            Button {
+                store.error = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.12))
+    }
+
+    private func savingErrorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "xmark.octagon.fill")
+                .foregroundStyle(.red)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.primary)
+            Spacer()
+            Button {
+                savingError = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(Color.red.opacity(0.12))
+    }
+
     // MARK: - Header со статистикой
+
     private var summaryHeader: some View {
         HStack(spacing: 12) {
             statCard(
@@ -152,6 +234,7 @@ struct WorksListView: View {
     }
 
     // MARK: - Фильтр по категориям
+
     private var categoryPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -182,23 +265,20 @@ struct WorksListView: View {
     }
 
     // MARK: - Список работ
+
     private var worksList: some View {
         List {
             ForEach(filteredWorks) { work in
-                NavigationLink {
-                    WorkDetailView(work: work) {
-                        editingWork = work
+                WorkRowView(work: work)
+                    .contentShape(Rectangle())
+                    .onTapGesture { viewingWork = work }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            Task { await deleteWork(work) }
+                        } label: {
+                            Label("Удалить", systemImage: "trash")
+                        }
                     }
-                } label: {
-                    WorkRowView(work: work)
-                }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        store.delete(work)
-                    } label: {
-                        Label("Удалить", systemImage: "trash")
-                    }
-                }
             }
         }
         .listStyle(.plain)
@@ -210,31 +290,32 @@ struct WorksListView: View {
             Image(systemName: "car.fill")
                 .font(.system(size: 60))
                 .foregroundStyle(.secondary)
-            Text("Пока нет записей")
+            Text(store.isLoading ? "Загрузка..." : "Пока нет записей")
                 .font(.title3)
                 .foregroundStyle(.secondary)
-            Text("Нажмите + чтобы добавить первую работу")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            if !store.isLoading {
+                Text("Нажмите + чтобы добавить первую работу")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
             Spacer()
         }
     }
 
-    private func formatCurrency(_ value: Double) -> String {
-        let f = NumberFormatter()
-        f.numberStyle = .currency
-        f.currencySymbol = "₽"
-        f.maximumFractionDigits = 0
-        return f.string(from: NSNumber(value: value)) ?? "\(Int(value)) ₽"
+    // MARK: - Действия
+
+    private func deleteWork(_ work: CarWork) async {
+        savingError = nil
+        await store.remove(work)
     }
-    
+
     // MARK: - Экспорт / импорт
 
     private func exportBackup() {
         do {
             let url = try BackupManager.exportBackup(
                 works: store.works,
-                reminders: reminderStore.reminders
+                reminders: []
             )
             shareURL = url
             showingShareSheet = true
@@ -276,21 +357,29 @@ struct WorksListView: View {
     private func importFrom(url: URL) {
         do {
             let backup = try BackupManager.importBackup(from: url)
-            let merged = BackupManager.merge(
-                backup: backup,
-                into: store.works,
-                and: reminderStore.reminders
-            )
 
-            // Применяем результат
-            
-            store.replaceAll(with: merged.works)
-            reminderStore.replaceAll(with: merged.reminders)
-            
-            alertMessage = AlertMessage(
-                title: "Импорт завершён",
-                message: merged.result.summaryText
-            )
+            // Импортируем работы по одной через add
+            Task {
+                var added = 0
+                var skipped = 0
+
+                for work in backup.works {
+                    // Проверяем, есть ли уже такая работа
+                    if store.works.contains(where: { $0.id == work.id }) {
+                        skipped += 1
+                        continue
+                    }
+                    await store.add(work)
+                    added += 1
+                }
+
+                await MainActor.run {
+                    alertMessage = AlertMessage(
+                        title: "Импорт завершён",
+                        message: "Добавлено работ: \(added), пропущено дубликатов: \(skipped)"
+                    )
+                }
+            }
         } catch {
             alertMessage = AlertMessage(
                 title: "Ошибка импорта",
@@ -298,9 +387,29 @@ struct WorksListView: View {
             )
         }
     }
+
+    // MARK: - Форматирование
+
+    private func formatCurrency(_ value: Double) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.currencySymbol = "₽"
+        f.maximumFractionDigits = 0
+        return f.string(from: NSNumber(value: value)) ?? "\(Int(value)) ₽"
+    }
+    
+    /// Обновить данные из облака (pull-to-refresh)
+    @MainActor
+    private func refresh() async {
+        await store.reload()
+
+        // Haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+    }
 }
 
-// MARK: - Вспомогательные типы для алертов
+// MARK: - Вспомогательные типы
 
 struct AlertMessage: Identifiable {
     let id = UUID()
