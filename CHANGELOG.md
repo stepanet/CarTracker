@@ -1,4 +1,54 @@
 # Changelog
+## [3.0] — 2026-10-01
+
+Несколько транспортных средств (Гараж).
+
+### Added
+
+**Модель `Vehicle`**
+- `Vehicle.swift` — машина / мотоцикл / скутер / другое
+- Поля: имя, тип, госномер, год, иконка, начальный пробег
+- Кастомный `init(from:)` для совместимости с бэкапами
+
+**Репозиторий и стор**
+- `VehiclesRepository.swift` — CRUD через Supabase
+- `VehicleStore.swift` — ObservableObject со singleton
+- Realtime-подписка на `vehicles`
+- Синхронизация с вебом и Android
+
+**UI Гаража**
+- `GarageView.swift` — экран «Гараж» (4-я вкладка)
+- `VehicleCardView.swift` — карточка транспорта
+- `VehicleFormView.swift` — форма добавления/редактирования
+- `VehicleSwitcherView.swift` — переключатель в шапке
+- Обновлён `ContentView.swift` — 4 вкладки
+
+**Фильтрация данных**
+- `CarWorkStore` фильтрует работы по `activeVehicleId`
+- `ReminderStore` фильтрует напоминания по `activeVehicleId`
+- `CarWork` и `Reminder` получили поле `vehicleId`
+- `WorksRepository` и `RemindersRepository` — поддержка `vehicle_id`
+
+**Миграция**
+- Создание «Моей машины» при первом входе
+- Привязка старых работ и напоминаний к дефолтному ТС
+- `VehicleStore.migrateOrphans()` — миграция
+
+### Changed
+- `CarTrackerApp.swift` — `bootstrap` с загрузкой транспорта
+- `ContentView.swift` — 4-я вкладка «Гараж» + переключатель
+- `RemindersView.swift` — async-методы, pull-to-refresh
+- `WorksListView.swift` — `reload()` для pull-to-refresh
+- `ReminderStore` и `CarWorkStore` — метод `reload()`
+- `VehicleStore` — singleton (`static let shared`)
+
+### Fixed
+- `delete` → `remove` в вызовах сторов
+- `.environmentObject(reminderStore)` в `.sheet`
+- `Cannot find 'bootstrap' in scope` — добавлен метод
+- `Cannot call value of non-function type` — добавлен `reload()`
+
+
 
 ## [2.0] — 2026-09-24
 
