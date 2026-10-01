@@ -15,10 +15,13 @@ final class RealtimeManager: ObservableObject {
     /// Текущие подписки
     private var worksChannel: RealtimeChannelV2?
     private var remindersChannel: RealtimeChannelV2?
+    private var vehiclesChannel: RealtimeChannelV2?
+    
 
     /// Колбэки на изменения
     var onWorksChanged: (() -> Void)?
     var onRemindersChanged: (() -> Void)?
+    var onVehiclesChanged: (() -> Void)?
 
     // MARK: - Подписки
 
@@ -99,6 +102,38 @@ final class RealtimeManager: ObservableObject {
             print("🔔 Realtime: подписка на reminders активна")
         }
     }
+    
+    /// Подписаться на изменения таблицы `vehicles`
+    func subscribeVehicles(userId: UUID) {
+        Task {
+            await unsubscribeVehicles()
+
+            let channel = client.realtimeV2.channel("vehicles-changes-\(userId)")
+
+            let changes = channel.postgresChange(
+                AnyAction.self,
+                schema: "public",
+                table: "vehicles",
+                filter: .eq("user_id", value: userId.uuidString)
+            )
+
+            do {
+                try await channel.subscribeWithError()
+                print("🔔 Realtime: подписка на vehicles активна")
+            } catch {
+                print("❌ Realtime: ошибка подписки на vehicles — \(error)")
+                return
+            }
+
+            Task {
+                for await _ in changes {
+                    self.onVehiclesChanged?()
+                }
+            }
+
+            self.vehiclesChannel = channel
+        }
+    }
 
     // MARK: - Отписки
 
@@ -121,5 +156,14 @@ final class RealtimeManager: ObservableObject {
     func unsubscribeAll() async {
         await unsubscribeWorks()
         await unsubscribeReminders()
+        await unsubscribeVehicles()
+    }
+    
+    func unsubscribeVehicles() async {
+        if let channel = vehiclesChannel {
+            await channel.unsubscribe()
+            vehiclesChannel = nil
+            print("🔕 Realtime: vehicles отписана")
+        }
     }
 }

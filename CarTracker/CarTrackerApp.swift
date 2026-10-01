@@ -7,6 +7,7 @@ struct CarTrackerApp: App {
     @StateObject private var workStore = CarWorkStore()
     @StateObject private var reminderStore = ReminderStore()
     @StateObject private var authManager = AuthManager.shared
+    @StateObject private var vehicleStore = VehicleStore()
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -22,6 +23,7 @@ struct CarTrackerApp: App {
                         .environmentObject(workStore)
                         .environmentObject(reminderStore)
                         .environmentObject(authManager)
+                        .environmentObject(vehicleStore)   // ← НОВОЕ
                         .task {
                             // Загрузка данных при появлении основного экрана
                             await bootstrap(userId: user.id)
@@ -59,25 +61,38 @@ struct CarTrackerApp: App {
     @MainActor
     private func bootstrap(userId: UUID) async {
         // 1. Миграция UserDefaults → Supabase
-        let migratedWorks = await workStore.migrateFromUserDefaults(userId: userId)
-        if migratedWorks > 0 {
-            print("📤 Мигрировано работ: \(migratedWorks)")
+        let worksMigrated = await workStore.migrateFromUserDefaults(userId: userId)
+        if worksMigrated > 0 {
+            print("📤 Мигрировано работ из UserDefaults: \(worksMigrated)")
         }
 
-        let migratedReminders = await reminderStore.migrateFromUserDefaults(userId: userId)
-        if migratedReminders > 0 {
-            print("📤 Мигрировано напоминаний: \(migratedReminders)")
+        let remindersMigrated = await reminderStore.migrateFromUserDefaults(userId: userId)
+        if remindersMigrated > 0 {
+            print("📤 Мигрировано напоминаний из UserDefaults: \(remindersMigrated)")
+        }
+        
+        
+        // 2. Загрузка транспорта ПЕРВЫМ
+        await vehicleStore.loadVehicles(userId: userId)
+
+        // 3. Создаём дефолтный транспорт, если нет
+        let defaultVehicle = await vehicleStore.ensureDefaultVehicle(userId: userId)
+
+        // 4. Миграция старых работ/напоминаний
+        if let vehicle = defaultVehicle {
+            await vehicleStore.migrateOrphans(userId: userId, vehicleId: vehicle.id)
         }
 
-        // 2. Загрузка из Supabase
+        // 5. Загрузка работ и напоминаний
         await workStore.loadWorks(userId: userId)
         await reminderStore.loadReminders(userId: userId)
 
-        // 3. Подписки Realtime
+        // 6. Realtime-подписки
+        vehicleStore.subscribeRealtime(userId: userId)
         workStore.subscribeRealtime(userId: userId)
         reminderStore.subscribeRealtime(userId: userId)
 
-        // 4. Остальные настройки
+        // 7. Прочее
         setupBackgroundTask()
         handleFirstLaunch()
         rescheduleNotifications()
