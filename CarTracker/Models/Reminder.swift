@@ -2,13 +2,59 @@ import Foundation
 
 struct Reminder: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
-    var title: String               // Название работы, например "Замена масла"
-    var icon: String                // SF Symbol
-    var intervalKm: Int             // Интервал в км (0 = не используется)
-    var intervalMonths: Int         // Интервал в месяцах (0 = не используется)
-    var lastDate: Date              // Когда делалось в последний раз
-    var lastMileage: Int            // Пробег на момент последнего выполнения
-    var isEnabled: Bool = true      // Включено ли напоминание
+    var vehicleId: UUID?            // ← привязка к транспорту
+    var title: String
+    var icon: String
+    var intervalKm: Int
+    var intervalMonths: Int
+    var lastDate: Date
+    var lastMileage: Int
+    var isEnabled: Bool = true
+
+    // MARK: - Кастомное декодирование
+
+    enum CodingKeys: String, CodingKey {
+        case id, vehicleId, title, icon
+        case intervalKm, intervalMonths
+        case lastDate, lastMileage, isEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        vehicleId = try container.decodeIfPresent(UUID.self, forKey: .vehicleId)
+        title = try container.decode(String.self, forKey: .title)
+        icon = try container.decode(String.self, forKey: .icon)
+        intervalKm = try container.decode(Int.self, forKey: .intervalKm)
+        intervalMonths = try container.decode(Int.self, forKey: .intervalMonths)
+        lastDate = try container.decode(Date.self, forKey: .lastDate)
+        lastMileage = try container.decode(Int.self, forKey: .lastMileage)
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+    }
+
+    // MARK: - Инициализатор
+
+    init(
+        id: UUID = UUID(),
+        vehicleId: UUID? = nil,
+        title: String,
+        icon: String,
+        intervalKm: Int,
+        intervalMonths: Int,
+        lastDate: Date,
+        lastMileage: Int,
+        isEnabled: Bool = true
+    ) {
+        self.id = id
+        self.vehicleId = vehicleId
+        self.title = title
+        self.icon = icon
+        self.intervalKm = intervalKm
+        self.intervalMonths = intervalMonths
+        self.lastDate = lastDate
+        self.lastMileage = lastMileage
+        self.isEnabled = isEnabled
+    }
 
     // MARK: - Вычисляемые значения
 
@@ -56,10 +102,10 @@ struct Reminder: Identifiable, Codable, Equatable {
 // MARK: - Статус напоминания
 
 enum ReminderStatus {
-    case ok         // 🟢 всё в порядке
-    case soon       // 🟡 скоро
-    case overdue    // 🔴 пора / просрочено
-    case disabled   // ⚪ выключено
+    case ok
+    case soon
+    case overdue
+    case disabled
 
     var color: String {
         switch self {

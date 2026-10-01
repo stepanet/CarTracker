@@ -17,18 +17,18 @@ enum RepositoryError: LocalizedError {
 }
 
 /// Репозиторий для работы с таблицами `works` и `sub_works` в Supabase.
-/// Аналог `worksApi.ts` в веб-версии.
 final class WorksRepository {
     static let shared = WorksRepository()
     private init() {}
 
     private let client = SupabaseService.shared.client
 
-    // MARK: - Внутренние модели для Supabase
+    // MARK: - Внутренние модели
 
     private struct WorkRow: Codable {
         let id: UUID
         let user_id: UUID
+        var vehicle_id: UUID?
         var title: String
         var category: String
         var date: Date
@@ -48,10 +48,10 @@ final class WorksRepository {
         var note: String
     }
 
-    /// Строка работы с вложенными подработы (для SELECT с join)
     private struct WorkWithSubsRow: Codable {
         let id: UUID
         let user_id: UUID
+        let vehicle_id: UUID?
         let title: String
         let category: String
         let date: Date
@@ -64,12 +64,19 @@ final class WorksRepository {
 
     // MARK: - Fetch
 
-    /// Получить все работы пользователя с подработы
-    func fetchAll(userId: UUID) async throws -> [CarWork] {
-        let rows: [WorkWithSubsRow] = try await client
+    /// Получить все работы пользователя с подработы.
+    /// Если vehicleId задан — фильтрует по транспорту.
+    func fetchAll(userId: UUID, vehicleId: UUID? = nil) async throws -> [CarWork] {
+        var query = client
             .from("works")
             .select("*, sub_works(*)")
-            .eq("user_id", value: userId)
+            .eq("user_id", value: userId.uuidString)
+
+        if let vehicleId = vehicleId {
+            query = query.eq("vehicle_id", value: vehicleId.uuidString)
+        }
+
+        let rows: [WorkWithSubsRow] = try await query
             .order("date", ascending: false)
             .execute()
             .value
@@ -77,6 +84,7 @@ final class WorksRepository {
         return rows.map { row in
             CarWork(
                 id: row.id,
+                vehicleId: row.vehicle_id,
                 title: row.title,
                 category: WorkCategory(rawValue: row.category) ?? .other,
                 date: row.date,
@@ -100,11 +108,11 @@ final class WorksRepository {
 
     // MARK: - Create
 
-    /// Создать работу с подработы (транзакционно)
     func create(_ work: CarWork, userId: UUID) async throws {
         let workRow = WorkRow(
             id: work.id,
             user_id: userId,
+            vehicle_id: work.vehicleId,
             title: work.title,
             category: work.category.rawValue,
             date: work.date,
@@ -114,13 +122,11 @@ final class WorksRepository {
             is_done: work.isDone
         )
 
-        // 1. Вставляем работу
         try await client
             .from("works")
             .insert(workRow)
             .execute()
 
-        // 2. Вставляем подработы (если есть)
         if !work.subWorks.isEmpty {
             let subRows = work.subWorks.map { sub in
                 SubWorkRow(
@@ -140,11 +146,10 @@ final class WorksRepository {
                     .insert(subRows)
                     .execute()
             } catch {
-                // Откатываем работу
                 _ = try? await client
                     .from("works")
                     .delete()
-                    .eq("id", value: work.id)
+                    .eq("id", value: work.id.uuidString)
                     .execute()
                 throw error
             }
@@ -153,11 +158,11 @@ final class WorksRepository {
 
     // MARK: - Update
 
-    /// Обновить работу с подработы
     func update(_ work: CarWork, userId: UUID) async throws {
         let workRow = WorkRow(
             id: work.id,
             user_id: userId,
+            vehicle_id: work.vehicleId,
             title: work.title,
             category: work.category.rawValue,
             date: work.date,
@@ -167,21 +172,18 @@ final class WorksRepository {
             is_done: work.isDone
         )
 
-        // 1. Обновляем работу
         try await client
             .from("works")
             .update(workRow)
-            .eq("id", value: work.id)
+            .eq("id", value: work.id.uuidString)
             .execute()
 
-        // 2. Удаляем старые подработы
         try await client
             .from("sub_works")
             .delete()
-            .eq("work_id", value: work.id)
+            .eq("work_id", value: work.id.uuidString)
             .execute()
 
-        // 3. Вставляем новые
         if !work.subWorks.isEmpty {
             let subRows = work.subWorks.map { sub in
                 SubWorkRow(
@@ -204,28 +206,24 @@ final class WorksRepository {
 
     // MARK: - Delete
 
-    /// Удалить работу (подработы удалятся каскадно)
     func delete(id: UUID) async throws {
         try await client
             .from("works")
             .delete()
-            .eq("id", value: id)
+            .eq("id", value: id.uuidString)
             .execute()
     }
 
-    // MARK: - Bulk insert (для миграции)
+    // MARK: - Bulk insert
 
-    /// Массовая вставка (для миграции из UserDefaults)
-    /// Возвращает количество вставленных записей
-    func bulkInsert(_ works: [CarWork], userId: UUID) async throws -> Int {
-        guard !works.isEmpty else { return 0 }
+    func bulkInsert(_ works: [CarWork], userId: UUID) async throws -> (inserted: Int, skipped: Int) {
+        guard !works.isEmpty else { return (0, 0) }
 
-        // Проверяем, какие id уже есть
-        let ids = works.map { $0.id }
+        let ids = works.map { $0.id.uuidString }
         let existing: [WorkRow] = try await client
             .from("works")
-            .select("id, user_id, title, category, date, mileage, cost, note, is_done")
-            .eq("user_id", value: userId)
+            .select("id, user_id, vehicle_id, title, category, date, mileage, cost, note, is_done")
+            .eq("user_id", value: userId.uuidString)
             .in("id", values: ids)
             .execute()
             .value
@@ -233,13 +231,15 @@ final class WorksRepository {
         let existingIds = Set(existing.map { $0.id })
         let toInsert = works.filter { !existingIds.contains($0.id) }
 
-        guard !toInsert.isEmpty else { return 0 }
+        guard !toInsert.isEmpty else {
+            return (0, works.count)
+        }
 
-        // Вставляем работы
         let workRows = toInsert.map { work in
             WorkRow(
                 id: work.id,
                 user_id: userId,
+                vehicle_id: work.vehicleId,
                 title: work.title,
                 category: work.category.rawValue,
                 date: work.date,
@@ -255,7 +255,6 @@ final class WorksRepository {
             .insert(workRows)
             .execute()
 
-        // Вставляем подработы
         let allSubRows = toInsert.flatMap { work in
             work.subWorks.map { sub in
                 SubWorkRow(
@@ -277,6 +276,6 @@ final class WorksRepository {
                 .execute()
         }
 
-        return toInsert.count
+        return (toInsert.count, works.count - toInsert.count)
     }
 }

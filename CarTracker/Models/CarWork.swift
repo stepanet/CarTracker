@@ -2,21 +2,24 @@ import Foundation
 
 struct CarWork: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
-    var title: String           // Название работы
-    var category: WorkCategory  // Категория
-    var date: Date              // Дата выполнения
-    var mileage: Int            // Пробег (км)
-    var cost: Double            // Стоимость
-    var note: String            // Заметки
-    var isDone: Bool = true     // Выполнено/запланировано
-    var subWorks: [SubItem] = []    // ← НОВОЕ ПОЛЕ
-    
+    var vehicleId: UUID?            // ← привязка к транспорту
+    var title: String
+    var category: WorkCategory
+    var date: Date
+    var mileage: Int
+    var cost: Double
+    var note: String
+    var isDone: Bool = true
+    var subWorks: [SubItem] = []
+
+    // MARK: - Вычисляемые значения
+
     /// Есть ли у работы подзаписи (работы или детали)
     var hasSubItems: Bool {
         !subWorks.isEmpty
     }
 
-    /// Количество работ
+    /// Количество работ (услуг)
     var worksCount: Int {
         subWorks.filter { $0.type == .work }.count
     }
@@ -30,19 +33,34 @@ struct CarWork: Identifiable, Codable, Equatable {
     var subWorksTotal: Double {
         subWorks.reduce(0) { $0 + $1.totalCost }
     }
-    
+
     // MARK: - Кастомное декодирование
-    // Нужно для чтения старых бэкапов, где нет поля subWorks
+    // Нужно для чтения старых бэкапов, где нет поля vehicleId и subWorks
 
     enum CodingKeys: String, CodingKey {
-        case id, title, category, date, mileage, cost, note, isDone, subWorks
+        case id, vehicleId, title, category, date, mileage, cost, note, isDone, subWorks
     }
-    
-    // MARK: - Инициализатор (нужен, потому что при кастомном init(from:)
-    // Swift не генерирует memberwise-инициализатор автоматически)
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        vehicleId = try container.decodeIfPresent(UUID.self, forKey: .vehicleId)
+        title = try container.decode(String.self, forKey: .title)
+        category = try container.decode(WorkCategory.self, forKey: .category)
+        date = try container.decode(Date.self, forKey: .date)
+        mileage = try container.decode(Int.self, forKey: .mileage)
+        cost = try container.decode(Double.self, forKey: .cost)
+        note = try container.decode(String.self, forKey: .note)
+        isDone = try container.decode(Bool.self, forKey: .isDone)
+        subWorks = try container.decodeIfPresent([SubItem].self, forKey: .subWorks) ?? []
+    }
+
+    // MARK: - Инициализатор
+    // Нужен, потому что при кастомном init(from:) Swift не генерирует memberwise-инициализатор
 
     init(
         id: UUID = UUID(),
+        vehicleId: UUID? = nil,
         title: String,
         category: WorkCategory,
         date: Date,
@@ -53,6 +71,7 @@ struct CarWork: Identifiable, Codable, Equatable {
         subWorks: [SubItem] = []
     ) {
         self.id = id
+        self.vehicleId = vehicleId
         self.title = title
         self.category = category
         self.date = date
@@ -63,18 +82,7 @@ struct CarWork: Identifiable, Codable, Equatable {
         self.subWorks = subWorks
     }
 
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
-        title = try container.decode(String.self, forKey: .title)
-        category = try container.decode(WorkCategory.self, forKey: .category)
-        date = try container.decode(Date.self, forKey: .date)
-        mileage = try container.decode(Int.self, forKey: .mileage)
-        cost = try container.decode(Double.self, forKey: .cost)
-        note = try container.decode(String.self, forKey: .note)
-        isDone = try container.decode(Bool.self, forKey: .isDone)
-        subWorks = try container.decodeIfPresent([SubItem].self, forKey: .subWorks) ?? []
-    }
+    // MARK: - Категории
 
     enum WorkCategory: String, Codable, CaseIterable, Identifiable {
         case maintenance = "ТО"

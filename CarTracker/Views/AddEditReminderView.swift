@@ -274,7 +274,7 @@ struct AddEditReminderView: View {
         isSaving = true
         saveError = nil
 
-        await store.delete(reminder)
+        await store.remove(reminder)
 
         isSaving = false
 

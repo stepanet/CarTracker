@@ -2,18 +2,16 @@ import Foundation
 import Supabase
 
 /// Репозиторий для работы с таблицей `reminders` в Supabase.
-/// Аналог `remindersApi.ts` в веб-версии.
 final class RemindersRepository {
     static let shared = RemindersRepository()
     private init() {}
 
     private let client = SupabaseService.shared.client
 
-    // MARK: - Внутренняя модель для Supabase
-
     private struct ReminderRow: Codable {
         let id: UUID
         let user_id: UUID
+        var vehicle_id: UUID?
         var title: String
         var icon: String
         var interval_km: Int
@@ -25,12 +23,19 @@ final class RemindersRepository {
 
     // MARK: - Fetch
 
-    /// Получить все напоминания пользователя
-    func fetchAll(userId: UUID) async throws -> [Reminder] {
-        let rows: [ReminderRow] = try await client
+    /// Получить все напоминания пользователя.
+    /// Если vehicleId задан — фильтрует по транспорту.
+    func fetchAll(userId: UUID, vehicleId: UUID? = nil) async throws -> [Reminder] {
+        var query = client
             .from("reminders")
             .select("*")
             .eq("user_id", value: userId.uuidString)
+
+        if let vehicleId = vehicleId {
+            query = query.eq("vehicle_id", value: vehicleId.uuidString)
+        }
+
+        let rows: [ReminderRow] = try await query
             .order("created_at", ascending: true)
             .execute()
             .value
@@ -38,6 +43,7 @@ final class RemindersRepository {
         return rows.map { row in
             Reminder(
                 id: row.id,
+                vehicleId: row.vehicle_id,
                 title: row.title,
                 icon: row.icon,
                 intervalKm: row.interval_km,
@@ -55,6 +61,7 @@ final class RemindersRepository {
         let row = ReminderRow(
             id: reminder.id,
             user_id: userId,
+            vehicle_id: reminder.vehicleId,
             title: reminder.title,
             icon: reminder.icon,
             interval_km: reminder.intervalKm,
@@ -76,6 +83,7 @@ final class RemindersRepository {
         let row = ReminderRow(
             id: reminder.id,
             user_id: userId,
+            vehicle_id: reminder.vehicleId,
             title: reminder.title,
             icon: reminder.icon,
             interval_km: reminder.intervalKm,
@@ -102,14 +110,11 @@ final class RemindersRepository {
             .execute()
     }
 
-    // MARK: - Bulk insert (для миграции)
+    // MARK: - Bulk insert
 
-    /// Массовая вставка (для миграции из UserDefaults).
-    /// Пропускает записи, которые уже есть в базе.
-    func bulkInsert(_ reminders: [Reminder], userId: UUID) async throws -> Int {
-        guard !reminders.isEmpty else { return 0 }
+    func bulkInsert(_ reminders: [Reminder], userId: UUID) async throws -> (inserted: Int, skipped: Int) {
+        guard !reminders.isEmpty else { return (0, 0) }
 
-        // Смотрим, какие id уже есть
         let ids = reminders.map { $0.id.uuidString }
         let existing: [ReminderRow] = try await client
             .from("reminders")
@@ -122,12 +127,15 @@ final class RemindersRepository {
         let existingIds = Set(existing.map { $0.id })
         let toInsert = reminders.filter { !existingIds.contains($0.id) }
 
-        guard !toInsert.isEmpty else { return 0 }
+        guard !toInsert.isEmpty else {
+            return (0, reminders.count)
+        }
 
         let rows = toInsert.map { reminder in
             ReminderRow(
                 id: reminder.id,
                 user_id: userId,
+                vehicle_id: reminder.vehicleId,
                 title: reminder.title,
                 icon: reminder.icon,
                 interval_km: reminder.intervalKm,
@@ -143,6 +151,6 @@ final class RemindersRepository {
             .insert(rows)
             .execute()
 
-        return toInsert.count
+        return (toInsert.count, reminders.count - toInsert.count)
     }
 }

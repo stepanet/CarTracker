@@ -2,30 +2,20 @@ import Foundation
 import Combine
 
 /// Хранилище напоминаний.
-/// Работает с Supabase через `RemindersRepository`.
 final class ReminderStore: ObservableObject {
-
-    // MARK: - Published
 
     @Published var reminders: [Reminder] = []
     @Published var isLoading: Bool = false
     @Published var error: String?
 
-    // MARK: - Dependencies
-
     private let repository = RemindersRepository.shared
     private let realtime = RealtimeManager.shared
     private var userId: UUID?
 
-    // MARK: - Init
-
-    init() {
-        // При старте ничего не грузим — загрузка идёт из CarTrackerApp
-    }
+    init() {}
 
     // MARK: - Загрузка / Realtime
 
-    /// Загрузить напоминания из Supabase
     @MainActor
     func loadReminders(userId: UUID) async {
         self.userId = userId
@@ -33,18 +23,24 @@ final class ReminderStore: ObservableObject {
         error = nil
 
         do {
-            let fetched = try await repository.fetchAll(userId: userId)
+            let activeVehicleId = VehicleStore.shared.activeVehicleId
+
+            let fetched = try await repository.fetchAll(
+                userId: userId,
+                vehicleId: activeVehicleId
+            )
             self.reminders = sortReminders(fetched)
             isLoading = false
-            print("✅ Загружено напоминаний: \(fetched.count)")
+
+            let vehicleInfo = activeVehicleId?.uuidString.prefix(8) ?? "все"
+            print("✅ Загружено напоминаний: \(fetched.count) (ТС: \(vehicleInfo))")
         } catch {
             self.error = error.localizedDescription
             isLoading = false
             print("❌ Ошибка загрузки напоминаний: \(error)")
         }
     }
-
-    /// Перезагрузить данные (для pull-to-refresh)
+    
     @MainActor
     func reload() async {
         guard let userId = userId else {
@@ -54,7 +50,6 @@ final class ReminderStore: ObservableObject {
         await loadReminders(userId: userId)
     }
 
-    /// Подписаться на Realtime-изменения
     @MainActor
     func subscribeRealtime(userId: UUID) {
         realtime.onRemindersChanged = { [weak self] in
@@ -67,14 +62,12 @@ final class ReminderStore: ObservableObject {
         realtime.subscribeReminders(userId: userId)
     }
 
-    /// Отписаться от Realtime
     @MainActor
     func unsubscribeRealtime() async {
         realtime.onRemindersChanged = nil
         await realtime.unsubscribeReminders()
     }
 
-    /// Очистить данные (при выходе)
     @MainActor
     func clear() {
         reminders = []
@@ -91,16 +84,19 @@ final class ReminderStore: ObservableObject {
             return
         }
 
-        // 1. Оптимистично добавляем
+        var withVehicle = reminder
+        if withVehicle.vehicleId == nil {
+            withVehicle.vehicleId = VehicleStore.shared.activeVehicleId
+        }
+
         var newReminders: [Reminder] = reminders
-        newReminders.append(reminder)
+        newReminders.append(withVehicle)
         reminders = sortReminders(newReminders)
 
-        // 2. Сохраняем в Supabase
         do {
-            try await repository.create(reminder, userId: userId)
+            try await repository.create(withVehicle, userId: userId)
         } catch {
-            reminders.removeAll { $0.id == reminder.id }
+            reminders.removeAll { $0.id == withVehicle.id }
             self.error = error.localizedDescription
             print("❌ Ошибка создания напоминания: \(error)")
         }
@@ -115,13 +111,11 @@ final class ReminderStore: ObservableObject {
 
         let previous: Reminder? = reminders.first { $0.id == reminder.id }
 
-        // 1. Оптимистично обновляем
         if let index = reminders.firstIndex(where: { $0.id == reminder.id }) {
             reminders[index] = reminder
             reminders = sortReminders(reminders)
         }
 
-        // 2. Сохраняем в Supabase
         do {
             try await repository.update(reminder, userId: userId)
         } catch {
@@ -136,13 +130,11 @@ final class ReminderStore: ObservableObject {
     }
 
     @MainActor
-    func delete(_ reminder: Reminder) async {
+    func remove(_ reminder: Reminder) async {
         let previous: [Reminder] = reminders
 
-        // 1. Оптимистично удаляем
         reminders.removeAll { $0.id == reminder.id }
 
-        // 2. Удаляем из Supabase
         do {
             try await repository.delete(id: reminder.id)
         } catch {
@@ -154,7 +146,6 @@ final class ReminderStore: ObservableObject {
 
     // MARK: - Действия
 
-    /// Пометить как выполненное сегодня
     @MainActor
     func markDone(_ reminder: Reminder, currentMileage: Int) async {
         var updated = reminder
@@ -163,7 +154,6 @@ final class ReminderStore: ObservableObject {
         await update(updated)
     }
 
-    /// Добавить типовой набор напоминаний
     @MainActor
     func installDefaultSet() async {
         let defaults: [Reminder] = [
@@ -206,7 +196,6 @@ final class ReminderStore: ObservableObject {
         }
     }
 
-    /// Напоминания, требующие внимания (для бейджа на вкладке)
     func remindersNeedingAttention(currentMileage: Int) -> [Reminder] {
         reminders.filter {
             let s = $0.status(currentMileage: currentMileage)
@@ -216,8 +205,6 @@ final class ReminderStore: ObservableObject {
 
     // MARK: - Миграция
 
-    /// Перенести данные из UserDefaults в Supabase (одноразово).
-    /// Возвращает количество перенесённых напоминаний.
     @MainActor
     func migrateFromUserDefaults(userId: UUID) async -> Int {
         let key = "car_reminders_v1"
@@ -230,18 +217,15 @@ final class ReminderStore: ObservableObject {
         }
 
         do {
-            let count = try await repository.bulkInsert(decoded, userId: userId)
+            let result = try await repository.bulkInsert(decoded, userId: userId)
 
-            // Удаляем старый ключ — миграция завершена
             UserDefaults.standard.removeObject(forKey: key)
 
-            if count > 0 {
-                print("📤 Мигрировано напоминаний: \(count)")
-            } else {
-                print("ℹ️ Напоминания уже были в базе")
+            if result.skipped > 0 {
+                print("ℹ️ Напоминания: добавлено \(result.inserted), пропущено \(result.skipped)")
             }
 
-            return count
+            return result.inserted
         } catch {
             print("❌ Ошибка миграции напоминаний: \(error)")
             return 0
@@ -270,11 +254,9 @@ final class ReminderStore: ObservableObject {
 // MARK: - Логика статуса (extension Reminder)
 
 extension Reminder {
-    /// Определить статус напоминания исходя из текущего пробега
     func status(currentMileage: Int) -> ReminderStatus {
         guard isEnabled else { return .disabled }
 
-        // Проверяем по дате
         if let nextDate = nextDate {
             let daysLeft = Calendar.current.dateComponents(
                 [.day],
@@ -286,7 +268,6 @@ extension Reminder {
             if daysLeft < 30 { return .soon }
         }
 
-        // Проверяем по пробегу
         if let nextMileage = nextMileage {
             let kmLeft = nextMileage - currentMileage
 
@@ -297,7 +278,6 @@ extension Reminder {
         return .ok
     }
 
-    /// Сколько осталось до следующей замены (текстом)
     func remainingText(currentMileage: Int) -> String {
         guard isEnabled else { return "Выключено" }
 

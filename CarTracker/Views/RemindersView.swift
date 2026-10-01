@@ -68,9 +68,11 @@ struct RemindersView: View {
             }
             .sheet(isPresented: $showingAdd) {
                 AddEditReminderView(reminder: nil)
+                    .environmentObject(reminderStore)   // ← ДОБАВИТЬ
             }
             .sheet(item: $editingReminder) { reminder in
                 AddEditReminderView(reminder: reminder)
+                    .environmentObject(reminderStore)   // ← ДОБАВИТЬ
             }
             .onAppear {
                 NotificationManager.shared.reschedule(
@@ -251,7 +253,7 @@ struct RemindersView: View {
     private func deleteReminder(_ reminder: Reminder) {
         Task {
             NotificationManager.shared.cancel(for: reminder)
-            await reminderStore.delete(reminder)
+            await reminderStore.remove(reminder)
         }
     }
 

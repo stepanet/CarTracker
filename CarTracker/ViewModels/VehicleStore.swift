@@ -4,6 +4,8 @@ import Combine
 /// Хранилище транспорта.
 /// Работает с Supabase через `VehiclesRepository`.
 final class VehicleStore: ObservableObject {
+    
+    static let shared = VehicleStore()   // ← НОВОЕ
 
     // MARK: - Published
 

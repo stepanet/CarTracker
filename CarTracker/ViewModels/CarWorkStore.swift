@@ -2,30 +2,20 @@ import Foundation
 import Combine
 
 /// Хранилище работ.
-/// Работает с Supabase через `WorksRepository`.
 final class CarWorkStore: ObservableObject {
-
-    // MARK: - Published
 
     @Published var works: [CarWork] = []
     @Published var isLoading: Bool = false
     @Published var error: String?
 
-    // MARK: - Dependencies
-
     private let repository = WorksRepository.shared
     private let realtime = RealtimeManager.shared
     private var userId: UUID?
 
-    // MARK: - Init
-
-    init() {
-        // При старте ничего не грузим — загрузка идёт из CarTrackerApp
-    }
+    init() {}
 
     // MARK: - Загрузка / Realtime
 
-    /// Загрузить работы из Supabase
     @MainActor
     func loadWorks(userId: UUID) async {
         self.userId = userId
@@ -33,10 +23,17 @@ final class CarWorkStore: ObservableObject {
         error = nil
 
         do {
-            let fetched = try await repository.fetchAll(userId: userId)
+            let activeVehicleId = VehicleStore.shared.activeVehicleId
+
+            let fetched = try await repository.fetchAll(
+                userId: userId,
+                vehicleId: activeVehicleId
+            )
             self.works = sortWorks(fetched)
             isLoading = false
-            print("✅ Загружено работ: \(fetched.count)")
+
+            let vehicleInfo = activeVehicleId?.uuidString.prefix(8) ?? "все"
+            print("✅ Загружено работ: \(fetched.count) (ТС: \(vehicleInfo))")
         } catch {
             self.error = error.localizedDescription
             isLoading = false
@@ -44,18 +41,15 @@ final class CarWorkStore: ObservableObject {
         }
     }
     
-    /// Перезагрузить данные, используя сохранённый userId.
-    /// Используется для pull-to-refresh.
     @MainActor
     func reload() async {
         guard let userId = userId else {
-            print("⚠️ Нет userId для reload")
+            print("⚠️ Нет userId для reload работ")
             return
         }
         await loadWorks(userId: userId)
     }
 
-    /// Подписаться на Realtime-изменения
     @MainActor
     func subscribeRealtime(userId: UUID) {
         realtime.onWorksChanged = { [weak self] in
@@ -68,14 +62,12 @@ final class CarWorkStore: ObservableObject {
         realtime.subscribeWorks(userId: userId)
     }
 
-    /// Отписаться от Realtime
     @MainActor
     func unsubscribeRealtime() async {
         realtime.onWorksChanged = nil
         await realtime.unsubscribeWorks()
     }
 
-    /// Очистить данные (при выходе)
     @MainActor
     func clear() {
         works = []
@@ -83,7 +75,7 @@ final class CarWorkStore: ObservableObject {
         error = nil
     }
 
-    // MARK: - CRUD работы
+    // MARK: - CRUD
 
     @MainActor
     func add(_ work: CarWork) async {
@@ -92,18 +84,21 @@ final class CarWorkStore: ObservableObject {
             return
         }
 
-        let normalized: CarWork = normalizeCost(work)
+        // Проставляем активный транспорт, если не задан
+        var withVehicle = work
+        if withVehicle.vehicleId == nil {
+            withVehicle.vehicleId = VehicleStore.shared.activeVehicleId
+        }
 
-        // 1. Оптимистично добавляем
+        let normalized: CarWork = normalizeCost(withVehicle)
+
         var newWorks: [CarWork] = works
         newWorks.append(normalized)
         works = sortWorks(newWorks)
 
-        // 2. Сохраняем в Supabase
         do {
             try await repository.create(normalized, userId: userId)
         } catch {
-            // Откатываем
             works.removeAll { $0.id == normalized.id }
             self.error = error.localizedDescription
             print("❌ Ошибка создания работы: \(error)")
@@ -120,17 +115,14 @@ final class CarWorkStore: ObservableObject {
         let normalized: CarWork = normalizeCost(work)
         let previous: CarWork? = works.first { $0.id == work.id }
 
-        // 1. Оптимистично обновляем
         if let index = works.firstIndex(where: { $0.id == normalized.id }) {
             works[index] = normalized
             works = sortWorks(works)
         }
 
-        // 2. Сохраняем в Supabase
         do {
             try await repository.update(normalized, userId: userId)
         } catch {
-            // Откатываем
             if let prev = previous,
                let index = works.firstIndex(where: { $0.id == prev.id }) {
                 works[index] = prev
@@ -145,21 +137,18 @@ final class CarWorkStore: ObservableObject {
     func remove(_ work: CarWork) async {
         let previous: [CarWork] = works
 
-        // 1. Оптимистично удаляем
         works.removeAll { $0.id == work.id }
 
-        // 2. Удаляем из Supabase
         do {
             try await repository.delete(id: work.id)
         } catch {
-            // Откатываем
             works = previous
             self.error = error.localizedDescription
             print("❌ Ошибка удаления работы: \(error)")
         }
     }
 
-    // MARK: - Подработы (через update)
+    // MARK: - Подработы
 
     @MainActor
     func addSubItem(to workId: UUID, item: SubItem) async {
@@ -189,8 +178,6 @@ final class CarWorkStore: ObservableObject {
 
     // MARK: - Миграция
 
-    /// Перенести данные из UserDefaults в Supabase (одноразово).
-    /// Возвращает количество перенесённых работ.
     @MainActor
     func migrateFromUserDefaults(userId: UUID) async -> Int {
         let key = "car_works_v1"
@@ -203,25 +190,22 @@ final class CarWorkStore: ObservableObject {
         }
 
         do {
-            let count = try await repository.bulkInsert(decoded, userId: userId)
+            let result = try await repository.bulkInsert(decoded, userId: userId)
 
-            // Удаляем старый ключ — миграция завершена
             UserDefaults.standard.removeObject(forKey: key)
 
-            if count > 0 {
-                print("📤 Мигрировано работ: \(count)")
-            } else {
-                print("ℹ️ Работы уже были в базе")
+            if result.skipped > 0 {
+                print("ℹ️ Работы: добавлено \(result.inserted), пропущено \(result.skipped)")
             }
 
-            return count
+            return result.inserted
         } catch {
             print("❌ Ошибка миграции работ: \(error)")
             return 0
         }
     }
 
-    // MARK: - Утилиты (синхронные)
+    // MARK: - Утилиты
 
     var totalCost: Double {
         works.filter { $0.isDone }.reduce(0) { $0 + $1.cost }
@@ -425,4 +409,3 @@ struct TopItem: Identifiable {
 }
 
 typealias WorkCategory = CarWork.WorkCategory
-// SubItemType определён глобально в SubItem.swift

@@ -1,13 +1,14 @@
-import SwiftUI
 import Auth
 import Foundation
+import SwiftUI
+
 
 @main
 struct CarTrackerApp: App {
     @StateObject private var workStore = CarWorkStore()
     @StateObject private var reminderStore = ReminderStore()
     @StateObject private var authManager = AuthManager.shared
-    @StateObject private var vehicleStore = VehicleStore()
+    @ObservedObject private var vehicleStore = VehicleStore.shared
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -23,10 +24,17 @@ struct CarTrackerApp: App {
                         .environmentObject(workStore)
                         .environmentObject(reminderStore)
                         .environmentObject(authManager)
-                        .environmentObject(vehicleStore)   // ← НОВОЕ
+                        .environmentObject(vehicleStore)
                         .task {
-                            // Загрузка данных при появлении основного экрана
                             await bootstrap(userId: user.id)
+                        }
+                        .onChange(of: vehicleStore.activeVehicleId) { oldValue, newValue in
+                            guard newValue != nil else { return }
+                            Task {
+                                print("🔄 Смена активного ТС, перезагрузка данных...")
+                                await workStore.loadWorks(userId: user.id)
+                                await reminderStore.loadReminders(userId: user.id)
+                            }
                         }
                 } else {
                     AuthView()
@@ -40,10 +48,11 @@ struct CarTrackerApp: App {
                 if let user = authManager.user {
                     Task {
                         await workStore.loadWorks(userId: user.id)
+                        await reminderStore.loadReminders(userId: user.id)
+
                         await workStore.unsubscribeRealtime()
                         workStore.subscribeRealtime(userId: user.id)
 
-                        await reminderStore.loadReminders(userId: user.id)
                         await reminderStore.unsubscribeRealtime()
                         reminderStore.subscribeRealtime(userId: user.id)
                     }
@@ -57,7 +66,6 @@ struct CarTrackerApp: App {
 
     // MARK: - Bootstrap
 
-    /// Загрузка данных при входе пользователя
     @MainActor
     private func bootstrap(userId: UUID) async {
         // 1. Миграция UserDefaults → Supabase
@@ -70,8 +78,7 @@ struct CarTrackerApp: App {
         if remindersMigrated > 0 {
             print("📤 Мигрировано напоминаний из UserDefaults: \(remindersMigrated)")
         }
-        
-        
+
         // 2. Загрузка транспорта ПЕРВЫМ
         await vehicleStore.loadVehicles(userId: userId)
 
