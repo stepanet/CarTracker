@@ -8,6 +8,13 @@ enum VehicleType: String, Codable, CaseIterable, Identifiable {
     case car = "car"
     case motorcycle = "motorcycle"
     case scooter = "scooter"
+    case snowblower = "snowblower"
+    case lawnmower = "lawnmower"
+    case tiller = "tiller"
+    case generator = "generator"
+    case atv = "atv"
+    case boat = "boat"
+    case trailer = "trailer"
     case other = "other"
 
     var id: String { rawValue }
@@ -17,6 +24,13 @@ enum VehicleType: String, Codable, CaseIterable, Identifiable {
         case .car: return "Машина"
         case .motorcycle: return "Мотоцикл"
         case .scooter: return "Скутер"
+        case .snowblower: return "Снегоуборщик"
+        case .lawnmower: return "Газонокосилка"
+        case .tiller: return "Мотоблок"
+        case .generator: return "Генератор"
+        case .atv: return "Квадроцикл"
+        case .boat: return "Лодка"
+        case .trailer: return "Прицеп"
         case .other: return "Другое"
         }
     }
@@ -25,9 +39,16 @@ enum VehicleType: String, Codable, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .car: return "car.fill"
-        case .motorcycle: return "bicycle"       // SF Symbols не имеет motorcycle
+        case .motorcycle: return "bicycle"
         case .scooter: return "scooter"
-        case .other: return "box.truck.fill"
+        case .snowblower: return "snowflake"
+        case .lawnmower: return "leaf.fill"
+        case .tiller: return "tractor"        // может отсутствовать — заменить
+        case .generator: return "bolt.fill"
+        case .atv: return "car.2.fill"
+        case .boat: return "sailboat.fill"
+        case .trailer: return "box.truck.fill"
+        case .other: return "shippingbox.fill"
         }
     }
 }

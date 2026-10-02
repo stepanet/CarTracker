@@ -51,6 +51,7 @@ struct VehicleCardView: View {
                 }
             }
             .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)  // ← вся ширина
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(Color(.secondarySystemGroupedBackground))
@@ -59,20 +60,22 @@ struct VehicleCardView: View {
                 RoundedRectangle(cornerRadius: 16)
                     .strokeBorder(isActive ? Color.blue : Color.clear, lineWidth: 2)
             )
+            .contentShape(Rectangle())   // ← весь прямоугольник — тапабельный
         }
         .buttonStyle(.plain)
-        .contextMenu {
-            Button {
-                onEdit()
-            } label: {
-                Label("Редактировать", systemImage: "pencil")
-            }
-
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
                 onDelete()
             } label: {
                 Label("Удалить", systemImage: "trash")
             }
+
+            Button {
+                onEdit()
+            } label: {
+                Label("Изменить", systemImage: "pencil")
+            }
+            .tint(.blue)
         }
     }
 }

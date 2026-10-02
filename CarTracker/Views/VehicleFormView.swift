@@ -26,6 +26,11 @@ struct VehicleFormView: View {
         ("car", "Машина", "car.fill"),
         ("bike", "Мотоцикл", "bicycle"),
         ("truck", "Фургон", "box.truck.fill"),
+        ("snowflake", "Снегоуборщик", "snowflake"),
+        ("sprout", "Газонокосилка", "leaf.fill"),
+        ("tractor", "Мотоблок", "car.fill"),        // tractor может отсутствовать
+        ("zap", "Генератор", "bolt.fill"),
+        ("anchor", "Лодка", "sailboat.fill"),
     ]
 
     var body: some View {
@@ -41,37 +46,85 @@ struct VehicleFormView: View {
 
                 // Тип
                 Section("Тип") {
-                    Picker("Тип", selection: $type) {
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible()), count: 2),
+                        spacing: 8
+                    ) {
                         ForEach(VehicleType.allCases) { t in
-                            Label(t.label, systemImage: t.icon).tag(t)
+                            Button {
+                                type = t
+                                // Автоподстановка иконки
+                                switch t {
+                                case .car: icon = "car"
+                                case .motorcycle, .scooter: icon = "bike"
+                                case .snowblower: icon = "snowflake"
+                                case .lawnmower: icon = "sprout"
+                                case .tiller: icon = "tractor"
+                                case .generator: icon = "zap"
+                                case .atv: icon = "car"
+                                case .boat: icon = "anchor"
+                                case .trailer: icon = "truck"
+                                case .other: icon = "box"
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: t.icon)
+                                        .font(.subheadline)
+                                        .frame(width: 20)
+                                    Text(t.label)
+                                        .font(.subheadline)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.8)
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    type == t
+                                        ? Color.accentColor.opacity(0.15)
+                                        : Color(.secondarySystemFill)
+                                )
+                                .foregroundStyle(
+                                    type == t
+                                        ? Color.accentColor
+                                        : Color.primary
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .strokeBorder(
+                                            type == t ? Color.accentColor : Color.clear,
+                                            lineWidth: 2
+                                        )
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .onChange(of: type) { _, newType in
-                        // Автоматически подставляем иконку
-                        switch newType {
-                        case .car: icon = "car"
-                        case .motorcycle, .scooter: icon = "bike"
-                        case .other: icon = "truck"
-                        }
-                    }
+                    .padding(.vertical, 4)
                 }
 
                 // Иконка
                 Section("Иконка") {
-                    HStack(spacing: 12) {
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible()), count: 4),
+                        spacing: 8
+                    ) {
                         ForEach(iconOptions, id: \.key) { opt in
                             Button {
                                 icon = opt.key
                             } label: {
-                                VStack(spacing: 6) {
+                                VStack(spacing: 4) {
                                     Image(systemName: opt.systemName)
-                                        .font(.title2)
+                                        .font(.title3)
                                     Text(opt.label)
-                                        .font(.caption2)
+                                        .font(.system(size: 9))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.7)
                                 }
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
+                                .padding(.vertical, 8)
                                 .background(
                                     icon == opt.key
                                         ? Color.accentColor.opacity(0.15)
@@ -82,7 +135,7 @@ struct VehicleFormView: View {
                                         ? Color.accentColor
                                         : Color.primary
                                 )
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
                             }
                             .buttonStyle(.plain)
                         }

@@ -10,8 +10,21 @@
 		64C385883065A0A500C17926 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 64C385873065A0A500C17926 /* Supabase */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		64C385BF306EB6A200C17926 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			dstPath = "";
+			dstSubfolder = PlugIns;
+			files = (
+			);
+			name = "Embed Foundation Extensions";
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		6490D17F30619C2100ADDF18 /* CarTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CarTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		64C385AA306EB6A100C17926 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		64C385AC306EB6A100C17926 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -33,6 +46,11 @@
 			path = CarTracker;
 			sourceTree = "<group>";
 		};
+		64C385AE306EB6A100C17926 /* CarTrackerWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CarTrackerWidget;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -49,6 +67,7 @@
 			isa = PBXGroup;
 			children = (
 				6490D18130619C2100ADDF18 /* CarTracker */,
+				64C385AE306EB6A100C17926 /* CarTrackerWidget */,
 				64C385863065A0A500C17926 /* Frameworks */,
 				6490D18030619C2100ADDF18 /* Products */,
 			);
@@ -65,6 +84,8 @@
 		64C385863065A0A500C17926 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				64C385AA306EB6A100C17926 /* WidgetKit.framework */,
+				64C385AC306EB6A100C17926 /* SwiftUI.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -79,6 +100,7 @@
 				6490D17B30619C2100ADDF18 /* Sources */,
 				6490D17C30619C2100ADDF18 /* Frameworks */,
 				6490D17D30619C2100ADDF18 /* Resources */,
+				64C385BF306EB6A200C17926 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
@@ -100,7 +122,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2700;
+				LastSwiftUpdateCheck = 2720;
 				LastUpgradeCheck = 2720;
 				TargetAttributes = {
 					6490D17E30619C2100ADDF18 = {

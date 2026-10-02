@@ -50,19 +50,8 @@ struct GarageView: View {
     // MARK: - Контент
 
     private var content: some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                HStack {
-                    Text("Мой гараж")
-                        .font(.title3.weight(.semibold))
-                    Spacer()
-                    Text("\(vehicleStore.vehicles.count)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal)
-                .padding(.top, 8)
-
+        List {
+            Section {
                 ForEach(vehicleStore.vehicles) { vehicle in
                     VehicleCardView(
                         vehicle: vehicle,
@@ -81,36 +70,41 @@ struct GarageView: View {
                             showingDeleteAlert = true
                         }
                     )
-                    .padding(.horizontal)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
+            } header: {
+                HStack {
+                    Text("Мой гараж")
+                        .textCase(nil)
+                        .font(.headline)
+                    Spacer()
+                    Text("\(vehicleStore.vehicles.count)")
+                        .textCase(nil)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
+            Section {
                 Button {
                     openAddForm()
                 } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "plus.circle")
-                        Text("Добавить транспорт")
+                    HStack {
+                        Spacer()
+                        Label("Добавить транспорт", systemImage: "plus.circle")
+                            .font(.subheadline.weight(.medium))
+                        Spacer()
                     }
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(
-                                style: StrokeStyle(lineWidth: 2, dash: [6])
-                            )
-                            .foregroundStyle(Color(.tertiaryLabel))
-                    )
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal)
-                .padding(.top, 4)
             }
-            .padding(.bottom, 24)
+            .listRowBackground(Color.clear)
         }
-        .background(Color(.systemGroupedBackground))
+        .listStyle(.insetGrouped)
     }
+
+    // MARK: - Пустое состояние
 
     private var emptyState: some View {
         VStack(spacing: 16) {
@@ -124,7 +118,7 @@ struct GarageView: View {
                 .font(.title3)
                 .foregroundStyle(.secondary)
 
-            Text("Добавьте машину или мотоцикл,\nчтобы разделить работы")
+            Text("Добавьте машину, мотоцикл или другую технику —\nчтобы разделить работы")
                 .font(.caption)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.tertiary)
@@ -153,5 +147,5 @@ struct GarageView: View {
 
 #Preview {
     GarageView()
-        .environmentObject(VehicleStore())
+        .environmentObject(VehicleStore.shared)
 }
