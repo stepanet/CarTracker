@@ -2,7 +2,7 @@ import WidgetKit
 import SwiftUI
 
 // ═══════════════════════════════════════════════
-// Timeline Entry — одна «точка» данных
+// Timeline Entry
 // ═══════════════════════════════════════════════
 
 struct CarTrackerEntry: TimelineEntry {
@@ -11,46 +11,42 @@ struct CarTrackerEntry: TimelineEntry {
 }
 
 // ═══════════════════════════════════════════════
-// Provider — источник данных для виджета
+// Provider
 // ═══════════════════════════════════════════════
 
 struct CarTrackerProvider: TimelineProvider {
-
-    /// Заглушка — пока данные не загружены (превью в галерее виджетов)
+    
     func placeholder(in context: Context) -> CarTrackerEntry {
         CarTrackerEntry(date: Date(), data: .empty)
     }
-
-    /// Быстрый снимок для галереи виджетов
+    
     func getSnapshot(
         in context: Context,
         completion: @escaping (CarTrackerEntry) -> Void
     ) {
         let data = WidgetData.load()
-        let entry = CarTrackerEntry(date: Date(), data: data)
-        completion(entry)
+        print("🔵 Widget snapshot: data has \(data.reminders.count) reminders")
+        completion(CarTrackerEntry(date: Date(), data: data))
     }
-
-    /// Основной timeline — данные + расписание обновлений
+    
     func getTimeline(
         in context: Context,
         completion: @escaping (Timeline<CarTrackerEntry>) -> Void
     ) {
         let data = WidgetData.load()
+        print("🔵 Widget timeline: data has \(data.reminders.count) reminders, vehicle: \(data.vehicleName)")
         let entry = CarTrackerEntry(date: Date(), data: data)
-
-        // Обновление через 30 минут
+        
         let nextUpdate = Calendar.current.date(
             byAdding: .minute, value: 30, to: Date()
         ) ?? Date().addingTimeInterval(1800)
-
+        
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         completion(timeline)
     }
 }
-
 // ═══════════════════════════════════════════════
-// UI виджета
+// UI
 // ═══════════════════════════════════════════════
 
 struct CarTrackerWidgetEntryView: View {
@@ -71,7 +67,7 @@ struct CarTrackerWidgetEntryView: View {
 }
 
 // ═══════════════════════════════════════════════
-// systemSmall
+// systemSmall — одно (самое горящее) напоминание
 // ═══════════════════════════════════════════════
 
 struct SmallWidgetView: View {
@@ -93,8 +89,8 @@ struct SmallWidgetView: View {
 
             Spacer(minLength: 0)
 
-            // Центр: напоминание
-            if let reminder = data.topReminder {
+            // Первое напоминание
+            if let reminder = data.reminders.first {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 4) {
                         Circle()
@@ -112,7 +108,6 @@ struct SmallWidgetView: View {
                         .lineLimit(2)
                 }
             } else {
-                // Нет напоминаний
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Нет напоминаний")
                         .font(.caption)
@@ -133,7 +128,7 @@ struct SmallWidgetView: View {
 }
 
 // ═══════════════════════════════════════════════
-// systemMedium
+// systemMedium — топ-3 напоминания + расходы
 // ═══════════════════════════════════════════════
 
 struct MediumWidgetView: View {
@@ -141,7 +136,7 @@ struct MediumWidgetView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Левая колонка: иконка + имя
+            // ЛЕВАЯ колонка: ТС + расходы
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Image(systemName: vehicleIcon(data.vehicleType))
@@ -156,7 +151,6 @@ struct MediumWidgetView: View {
 
                 Spacer()
 
-                // Месяц
                 VStack(alignment: .leading, spacing: 2) {
                     Text(data.monthName)
                         .font(.caption2)
@@ -166,34 +160,23 @@ struct MediumWidgetView: View {
                         .foregroundStyle(.primary)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: 100, alignment: .leading)
 
             Divider()
 
-            // Правая колонка: напоминание
+            // ПРАВАЯ колонка: список напоминаний
             VStack(alignment: .leading, spacing: 6) {
-                if let reminder = data.topReminder {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(statusColor(reminder.status))
-                            .frame(width: 8, height: 8)
-                        Text(reminder.title)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(2)
-                    }
-
-                    Text(reminder.remainingText)
-                        .font(.caption2)
-                        .foregroundStyle(statusColor(reminder.status))
-                        .lineLimit(3)
-                } else {
+                if data.reminders.isEmpty {
                     Text("Нет напоминаний")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Spacer()
+                } else {
+                    ForEach(data.reminders.prefix(3)) { reminder in
+                        ReminderRow(reminder: reminder)
+                    }
+                    Spacer()
                 }
-
-                Spacer()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -205,10 +188,37 @@ struct MediumWidgetView: View {
 }
 
 // ═══════════════════════════════════════════════
+// Строка напоминания
+// ═══════════════════════════════════════════════
+
+struct ReminderRow: View {
+    let reminder: WidgetReminder
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(statusColor(reminder.status))
+                .frame(width: 8, height: 8)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(reminder.title)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Text(reminder.remainingText)
+                    .font(.system(size: 10))
+                    .foregroundStyle(statusColor(reminder.status))
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════
 // Хелперы
 // ═══════════════════════════════════════════════
 
-/// SF Symbol по raw value типа ТС
 func vehicleIcon(_ type: String) -> String {
     switch type {
     case "car": return "car.fill"
@@ -225,7 +235,6 @@ func vehicleIcon(_ type: String) -> String {
     }
 }
 
-/// Цвет по статусу напоминания
 func statusColor(_ status: String) -> Color {
     switch status {
     case "overdue": return .red
@@ -236,7 +245,6 @@ func statusColor(_ status: String) -> Color {
     }
 }
 
-/// Формат денег: "15 300 ₽"
 func formatMoney(_ value: Double) -> String {
     let f = NumberFormatter()
     f.numberStyle = .currency
@@ -250,7 +258,7 @@ func formatMoney(_ value: Double) -> String {
 // ═══════════════════════════════════════════════
 
 struct CarTrackerWidget: Widget {
-    let kind: String = "CarTrackerWidget"
+    let kind: String = "CarTrackerWidget_v2"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(
@@ -266,7 +274,7 @@ struct CarTrackerWidget: Widget {
 }
 
 // ═══════════════════════════════════════════════
-// Widget Bundle — точка входа
+// Widget Bundle
 // ═══════════════════════════════════════════════
 
 @main
@@ -288,11 +296,13 @@ struct CarTrackerWidgetBundle: WidgetBundle {
         data: WidgetData(
             vehicleName: "Toyota Camry",
             vehicleType: "car",
-            topReminder: WidgetReminder(
-                title: "Замена масла",
-                status: "overdue",
-                remainingText: "просрочено на 850 км"
-            ),
+            reminders: [
+                WidgetReminder(
+                    title: "Замена масла",
+                    status: "overdue",
+                    remainingText: "просрочено на 850 км"
+                )
+            ],
             monthTotal: 15300,
             monthName: "Октябрь",
             updatedAt: .now
@@ -308,11 +318,23 @@ struct CarTrackerWidgetBundle: WidgetBundle {
         data: WidgetData(
             vehicleName: "Toyota Camry",
             vehicleType: "car",
-            topReminder: WidgetReminder(
-                title: "Замена масла",
-                status: "soon",
-                remainingText: "осталось 850 км • через 12 дн."
-            ),
+            reminders: [
+                WidgetReminder(
+                    title: "Замена масла",
+                    status: "overdue",
+                    remainingText: "просрочено на 850 км"
+                ),
+                WidgetReminder(
+                    title: "Ротация шин",
+                    status: "soon",
+                    remainingText: "осталось 2000 км"
+                ),
+                WidgetReminder(
+                    title: "Тормозная жидкость",
+                    status: "ok",
+                    remainingText: "осталось 6 мес."
+                )
+            ],
             monthTotal: 15300,
             monthName: "Октябрь",
             updatedAt: .now

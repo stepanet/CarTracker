@@ -2,13 +2,8 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var authManager: AuthManager
-    @EnvironmentObject var workStore: CarWorkStore
-    @EnvironmentObject var reminderStore: ReminderStore
-    @EnvironmentObject var vehicleStore: VehicleStore
 
     @State private var selectedTab = 0
-    @State private var showingLogoutAlert = false
-    @State private var isLoggingOut = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -36,74 +31,5 @@ struct ContentView: View {
                 }
                 .tag(3)
         }
-        .safeAreaInset(edge: .top) {
-            topBar
-        }
-        .alert("Выйти из аккаунта?", isPresented: $showingLogoutAlert) {
-            Button("Отмена", role: .cancel) { }
-            Button("Выйти", role: .destructive) {
-                Task { await performLogout() }
-            }
-        } message: {
-            Text("Данные останутся в облаке — сможете войти снова.")
-        }
-    }
-
-    // MARK: - Верхняя панель
-
-    private var topBar: some View {
-        HStack(spacing: 8) {
-            Text("CarTracker")
-                .font(.headline)
-
-            VehicleSwitcherView(onOpenGarage: {
-                selectedTab = 3
-            })
-
-            Spacer()
-
-            // Кнопка «Выйти»
-            Button {
-                showingLogoutAlert = true
-            } label: {
-                if isLoggingOut {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                } else {
-                    Image(systemName: "rectangle.portrait.and.arrow.right")
-                        .foregroundStyle(.red)
-                }
-            }
-            .disabled(isLoggingOut)
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(Color(.systemBackground))
-        .overlay(
-            Rectangle()
-                .frame(height: 0.5)
-                .foregroundStyle(Color(.separator)),
-            alignment: .bottom
-        )
-    }
-
-    // MARK: - Выход
-
-    @MainActor
-    private func performLogout() async {
-        isLoggingOut = true
-
-        workStore.clear()
-        reminderStore.clear()
-        vehicleStore.clear()
-
-        do {
-            try await authManager.signOut()
-            print("👋 Выход выполнен")
-        } catch {
-            print("❌ Ошибка выхода: \(error)")
-        }
-
-        isLoggingOut = false
     }
 }

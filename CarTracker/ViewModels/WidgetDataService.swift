@@ -1,15 +1,16 @@
 import Foundation
 
 /// Сервис для подготовки и сохранения данных виджета.
-/// Вызывается из приложения при изменениях.
 @MainActor
 final class WidgetDataService {
 
     static let shared = WidgetDataService()
     private init() {}
 
+    /// Максимум напоминаний для виджета
+    private let maxReminders = 5
+
     /// Обновить данные виджета.
-    /// Вызывать при любом изменении: работы, напоминания, активный ТС.
     func update(
         works: [CarWork],
         reminders: [Reminder],
@@ -19,7 +20,7 @@ final class WidgetDataService {
         let data = WidgetData(
             vehicleName: activeVehicle?.displayName ?? "CarTracker",
             vehicleType: activeVehicle?.type.rawValue ?? "car",
-            topReminder: topReminder(from: reminders, currentMileage: currentMileage),
+            reminders: topReminders(from: reminders, currentMileage: currentMileage),
             monthTotal: monthTotal(from: works),
             monthName: currentMonthName(),
             updatedAt: Date()
@@ -30,33 +31,36 @@ final class WidgetDataService {
 
     // MARK: - Приватные
 
-    private func topReminder(
+    /// Топ-N напоминаний: сначала overdue, потом soon, потом ok
+    private func topReminders(
         from reminders: [Reminder],
         currentMileage: Int
-    ) -> WidgetReminder? {
+    ) -> [WidgetReminder] {
         let enabled = reminders.filter { $0.isEnabled }
-        guard !enabled.isEmpty else { return nil }
+        guard !enabled.isEmpty else { return [] }
 
+        // Сортируем: overdue → soon → ok
         let sorted = enabled.sorted { lhs, rhs in
             priority(lhs.status(currentMileage: currentMileage)) <
             priority(rhs.status(currentMileage: currentMileage))
         }
 
-        guard let top = sorted.first else { return nil }
+        // Берём первые N
+        return sorted.prefix(maxReminders).map { reminder in
+            let statusString: String
+            switch reminder.status(currentMileage: currentMileage) {
+            case .overdue: statusString = "overdue"
+            case .soon: statusString = "soon"
+            case .ok: statusString = "ok"
+            case .disabled: statusString = "disabled"
+            }
 
-        let statusString: String
-        switch top.status(currentMileage: currentMileage) {
-        case .overdue: statusString = "overdue"
-        case .soon: statusString = "soon"
-        case .ok: statusString = "ok"
-        case .disabled: statusString = "disabled"
+            return WidgetReminder(
+                title: reminder.title,
+                status: statusString,
+                remainingText: reminder.remainingText(currentMileage: currentMileage)
+            )
         }
-
-        return WidgetReminder(
-            title: top.title,
-            status: statusString,
-            remainingText: top.remainingText(currentMileage: currentMileage)
-        )
     }
 
     private func priority(_ status: ReminderStatus) -> Int {

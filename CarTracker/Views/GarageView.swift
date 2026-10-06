@@ -1,12 +1,18 @@
 import SwiftUI
+import Auth
 
 struct GarageView: View {
     @EnvironmentObject var vehicleStore: VehicleStore
+    @EnvironmentObject var authManager: AuthManager
 
     @State private var showingForm = false
     @State private var editingVehicle: Vehicle?
     @State private var pendingDelete: Vehicle?
     @State private var showingDeleteAlert = false
+
+    // Выход
+    @State private var showingLogoutAlert = false
+    @State private var isLoggingOut = false
 
     var body: some View {
         NavigationStack {
@@ -19,13 +25,22 @@ struct GarageView: View {
             }
             .navigationTitle("Гараж")
             .toolbar {
+                // Кнопка "Выйти" — справа
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        openAddForm()
+                        showingLogoutAlert = true
                     } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title2)
+                        if isLoggingOut {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                                .foregroundStyle(.red)
+                                .frame(width: 32, height: 32)   // ← фиксируем
+                                .contentShape(Circle())
+                        }
                     }
+                    .disabled(isLoggingOut)
                 }
             }
             .sheet(isPresented: $showingForm) {
@@ -43,6 +58,14 @@ struct GarageView: View {
                 }
             } message: { vehicle in
                 Text("«\(vehicle.displayName)» и все его работы и напоминания будут удалены. Отменить действие нельзя.")
+            }
+            .alert("Выйти из аккаунта?", isPresented: $showingLogoutAlert) {
+                Button("Отмена", role: .cancel) { }
+                Button("Выйти", role: .destructive) {
+                    Task { await performLogout() }
+                }
+            } message: {
+                Text("Данные останутся в облаке — сможете войти снова.")
             }
         }
     }
@@ -143,9 +166,26 @@ struct GarageView: View {
         editingVehicle = nil
         showingForm = true
     }
+
+    // MARK: - Выход
+
+    @MainActor
+    private func performLogout() async {
+        isLoggingOut = true
+
+        do {
+            try await authManager.signOut()
+            print("👋 Выход выполнен")
+        } catch {
+            print("❌ Ошибка выхода: \(error)")
+        }
+
+        isLoggingOut = false
+    }
 }
 
 #Preview {
     GarageView()
         .environmentObject(VehicleStore.shared)
+        .environmentObject(AuthManager.shared)
 }

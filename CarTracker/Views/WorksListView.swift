@@ -1,11 +1,12 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
-import Auth  // для user.email
+import Auth
 
 struct WorksListView: View {
     @EnvironmentObject var store: CarWorkStore
     @EnvironmentObject var authManager: AuthManager
+    @EnvironmentObject var vehicleStore: VehicleStore
 
     @State private var showingAdd = false
     @State private var editingWork: CarWork?
@@ -19,10 +20,6 @@ struct WorksListView: View {
     @State private var shareURL: URL?
     @State private var showingFileImporter = false
     @State private var alertMessage: AlertMessage?
-
-    // Выход из аккаунта
-    @State private var showingLogoutAlert = false
-    @State private var isLoggingOut = false
 
     var filteredWorks: [CarWork] {
         store.works.filter { work in
@@ -65,6 +62,14 @@ struct WorksListView: View {
             .navigationTitle("Мои работы")
             .searchable(text: $searchText, prompt: "Поиск работ")
             .toolbar {
+                // Переключатель ТС — слева
+                ToolbarItem(placement: .topBarLeading) {
+                    VehicleSwitcherView(onOpenGarage: {
+                        // Ничего — пользователь сам перейдёт на «Гараж» через таббар
+                    })
+                }
+
+                // Кнопка "+" — справа
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showingAdd = true
@@ -74,6 +79,7 @@ struct WorksListView: View {
                     }
                 }
 
+                // Меню "..." — справа (без выхода)
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {
@@ -95,33 +101,9 @@ struct WorksListView: View {
                         } label: {
                             Label("Импорт из файла", systemImage: "square.and.arrow.down")
                         }
-
-                        Divider()
-
-                        // Email пользователя
-                        if let email = authManager.user?.email {
-                            Text(email)
-                                .font(.caption)
-                        }
-
-                        // Выйти из аккаунта
-                        Button(role: .destructive) {
-                            showingLogoutAlert = true
-                        } label: {
-                            Label(
-                                "Выйти из аккаунта",
-                                systemImage: "rectangle.portrait.and.arrow.right"
-                            )
-                        }
-                        .disabled(isLoggingOut)
                     } label: {
-                        if isLoggingOut {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        } else {
-                            Image(systemName: "ellipsis.circle")
-                                .font(.title2)
-                        }
+                        Image(systemName: "ellipsis.circle")
+                            .font(.title2)
                     }
                 }
             }
@@ -134,8 +116,6 @@ struct WorksListView: View {
             .sheet(item: $viewingWork) { work in
                 NavigationStack {
                     WorkDetailView(work: work) {
-                        // КРИТИЧЕСКИЙ ПОРЯДОК: сначала закрываем детальный,
-                        // потом открываем форму редактирования
                         viewingWork = nil
                         editingWork = work
                     }
@@ -159,14 +139,6 @@ struct WorksListView: View {
                     message: Text(msg.message),
                     dismissButton: .default(Text("OK"))
                 )
-            }
-            .alert("Выйти из аккаунта?", isPresented: $showingLogoutAlert) {
-                Button("Отмена", role: .cancel) { }
-                Button("Выйти", role: .destructive) {
-                    Task { await performLogout() }
-                }
-            } message: {
-                Text("Данные останутся в облаке — сможете войти снова.")
             }
         }
     }
@@ -353,20 +325,6 @@ struct WorksListView: View {
         await store.remove(work)
     }
 
-    @MainActor
-    private func performLogout() async {
-        isLoggingOut = true
-
-        do {
-            try await authManager.signOut()
-            print("👋 Выход выполнен")
-        } catch {
-            print("❌ Ошибка выхода: \(error)")
-        }
-
-        isLoggingOut = false
-    }
-
     // MARK: - Экспорт / импорт
 
     private func exportBackup() {
@@ -416,13 +374,11 @@ struct WorksListView: View {
         do {
             let backup = try BackupManager.importBackup(from: url)
 
-            // Импортируем работы по одной через add
             Task {
                 var added = 0
                 var skipped = 0
 
                 for work in backup.works {
-                    // Проверяем, есть ли уже такая работа
                     if store.works.contains(where: { $0.id == work.id }) {
                         skipped += 1
                         continue
@@ -456,12 +412,10 @@ struct WorksListView: View {
         return f.string(from: NSNumber(value: value)) ?? "\(Int(value)) ₽"
     }
 
-    /// Обновить данные из облака (pull-to-refresh)
     @MainActor
     private func refresh() async {
         await store.reload()
 
-        // Haptic feedback
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
     }

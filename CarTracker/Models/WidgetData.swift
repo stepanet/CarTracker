@@ -1,4 +1,5 @@
 import Foundation
+import WidgetKit    // ← ДОБАВИТЬ
 
 /// Данные для виджета — сериализуются в App Group UserDefaults.
 struct WidgetData: Codable {
@@ -9,8 +10,8 @@ struct WidgetData: Codable {
     /// Тип активного транспорта (raw value: "car", "motorcycle", ...)
     var vehicleType: String
 
-    /// Ближайшее напоминание (nil — если нет)
-    var topReminder: WidgetReminder?
+    /// Топ напоминаний (по статусу: overdue → soon → ok)
+    var reminders: [WidgetReminder]
 
     /// Расходы за текущий месяц
     var monthTotal: Double
@@ -25,7 +26,7 @@ struct WidgetData: Codable {
     static let empty = WidgetData(
         vehicleName: "CarTracker",
         vehicleType: "car",
-        topReminder: nil,
+        reminders: [],
         monthTotal: 0,
         monthName: "",
         updatedAt: Date()
@@ -33,7 +34,8 @@ struct WidgetData: Codable {
 }
 
 /// Данные одного напоминания для виджета
-struct WidgetReminder: Codable {
+struct WidgetReminder: Codable, Identifiable {
+    var id: String { title + status }
     var title: String
     var status: String          // "ok" | "soon" | "overdue" | "disabled"
     var remainingText: String   // "осталось 850 км • через 12 дн."
@@ -47,7 +49,11 @@ extension WidgetData {
         do {
             let data = try JSONEncoder().encode(self)
             AppGroup.defaults.set(data, forKey: AppGroup.Key.widgetData)
-            print("💾 WidgetData сохранён: \(vehicleName), напоминание: \(topReminder?.title ?? "нет")")
+            print("💾 WidgetData сохранён: \(vehicleName), напоминаний: \(reminders.count)")
+
+            // Просим iOS обновить виджет сразу
+            WidgetCenter.shared.reloadAllTimelines()
+            print("🔄 Виджет: запрошено обновление")
         } catch {
             print("❌ Ошибка сохранения WidgetData: \(error)")
         }

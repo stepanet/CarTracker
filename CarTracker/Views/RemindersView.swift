@@ -63,6 +63,8 @@ struct RemindersView: View {
                     } label: {
                         Image(systemName: "plus.circle.fill")
                             .font(.title2)
+                            .frame(width: 32, height: 32)   // ← фиксируем размер
+                            .contentShape(Circle())          // ← тап только по кругу
                     }
                 }
             }
