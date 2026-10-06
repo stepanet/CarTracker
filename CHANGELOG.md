@@ -1,4 +1,44 @@
 # Changelog
+## [3.1] — 2026-10-06
+
+Виджет iOS на домашнем экране + переработанный UI тулбаров.
+
+### Added
+
+**📱 Виджет iOS**
+- Widget Extension `CarTrackerWidget` (target)
+- **App Group** `group.com.stepanet.CarTracker` — общий контейнер данных
+- `AppGroup.swift` — обёртка `UserDefaults(suiteName:)`
+- `WidgetData` — модель (имя ТС, 5 напоминаний, расходы за месяц)
+- `WidgetDataService` — синхронизация из приложения в App Group
+- **`systemSmall`** — иконка ТС + ближайшее напоминание
+- **`systemMedium`** — топ-3 напоминания + расходы за месяц
+- `WidgetCenter.shared.reloadAllTimelines()` — форсированное обновление
+- Обновление виджета при каждом изменении данных
+
+**🎨 Переработка UI тулбаров**
+- `ContentView` — чистый `TabView` (убран `topBar`)
+- `WorksListView` — переключатель ТС слева, `+` и `⋯` справа
+- `GarageView` — `+` и `🚪` (выход) справа; крупная кнопка «Добавить транспорт» внизу
+- `RemindersView` — кнопка `+` справа
+- `StatsView` — без кнопок
+- **Убрана верхняя панель**, которая перекрывала тулбары вкладок
+
+### Changed
+- `CarTrackerApp.swift` — вызов `updateWidgetData()` в `bootstrap` и при смене ТС
+- Схема `CarTrackerWidget` — переменные `_XCWidgetKind`, `_XCWidgetFamily`
+
+### Fixed
+- Конфликт `@main` — удалён дубликат `CarTrackerWidgetBundle.swift`
+- Кнопки тулбара — фиксированные размеры (круг, а не овал)
+- `Switch must be exhaustive` — покрыты все 11 типов техники
+- `delete` → `remove` в вызовах сторов
+- `.environmentObject(reminderStore)` в `.sheet`
+
+### Notes
+- Виджет обновляется автоматически при изменениях в приложении
+- На iPhone — виджет в галерее доступен как **CarTracker**
+- После **переустановки** приложения виджет нужно **пересоздать** (iOS удаляет старый App Group контейнер)
 
 ## [3.1] — 2026-10-02
 
