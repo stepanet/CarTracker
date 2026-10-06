@@ -103,6 +103,27 @@ struct CarTrackerApp: App {
         setupBackgroundTask()
         handleFirstLaunch()
         rescheduleNotifications()
+
+        // 8. Обновляем данные виджета
+        updateWidgetData()
+
+    }
+    
+    // MARK: - Widget
+
+    /// Обновить данные виджета из текущего состояния приложения
+    private func updateWidgetData() {
+        let currentMileage = ReminderCalculator.currentMileage(
+            from: workStore.works,
+            reminders: reminderStore.reminders
+        )
+
+        WidgetDataService.shared.update(
+            works: workStore.works,
+            reminders: reminderStore.reminders,
+            activeVehicle: vehicleStore.activeVehicle,
+            currentMileage: currentMileage
+        )
     }
 
     // MARK: - Фоновые задачи

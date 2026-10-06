@@ -2,7 +2,7 @@
 <Scheme
    LastUpgradeVersion = "2720"
    wasCreatedForAppExtension = "YES"
-   version = "2.0">
+   version = "2.2">
    <BuildAction
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES"
@@ -33,6 +33,15 @@
                BuildableName = "CarTracker.app"
                ReferencedContainer = "container:CarTracker.xcodeproj">
             </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <AutocreatedTestPlanReference>
+            </AutocreatedTestPlanReference>
          </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
@@ -83,6 +92,26 @@
          <EnvironmentVariable
             key = "_XCWidgetFamily"
             value = "systemMedium"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "_XCWidgetKind"
+            value = "CarTrackerWidget"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "_XCWidgetFamily"
+            value = "systemMedium"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "_XCWidgetKind"
+            value = "CarTrackerWidget"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "_XCWidgetFamily"
+            value = "systemSmall"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>
